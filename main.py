@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Annotated
 from functools import lru_cache
 import math
 import os
@@ -14,6 +15,7 @@ class RecRequest(BaseModel):
 
 class Settings(BaseSettings):
     mongo_password: str
+
     model_config = SettingsConfigDict(env_file=".env")
 
 @lru_cache
@@ -27,7 +29,7 @@ def read_root():
     return {"message": "Hello from Koyeb"}
 
 @app.post("/recommend")
-def recommend(rec_request: RecRequest, settings: Settings = Depends(get_settings)):
+def recommend(rec_request: RecRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
     client = MongoClient(connection)
 

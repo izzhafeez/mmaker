@@ -7,6 +7,7 @@ from typing_extensions import Annotated
 from functools import lru_cache
 import math
 import os
+import certifi
 
 class RecRequest(BaseModel):
     tags: Dict[str, int]
@@ -30,8 +31,9 @@ def read_root():
 
 @app.post("/recommend")
 def recommend(rec_request: RecRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    ca = certifi.where()
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-    client = MongoClient(connection)
+    client = MongoClient(connection, tlsCAFile=ca)
 
     tags = rec_request.tags
     results = client.meetupmaker.halal.find({

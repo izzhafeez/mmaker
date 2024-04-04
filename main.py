@@ -327,6 +327,10 @@ def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: A
         'plays': quiz['plays'] + 1
       }
     })
+    return {
+      'players': players,
+      'plays': quiz['plays'] + 1
+    }
 
   players = quiz['players']
   # save only the top 10 players

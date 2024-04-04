@@ -366,7 +366,7 @@ def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: A
 
 @app.get('/api/quiz/{quiz_type}/{quiz_name}')
 def get_map_quiz(quiz_type: str, quiz_name: str, settings: Annotated[Settings, Depends(get_settings)]):
-  connection = f"mongodb+srv://admin:{'di1ayXVEx7Gib0Do'}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+  connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
   client = MongoClient(connection)
   result = client.quiz[quiz_type].find_one({
     'quiz_name': quiz_name

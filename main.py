@@ -382,7 +382,15 @@ def get_map_quiz(quiz_type: str, quiz_name: str, settings: Annotated[Settings, D
       'players': [],
       'plays': 0
     }
-  return result
+  
+  # return sorted based on decreasing score
+  players = result['players']
+  players.sort(key=lambda x: (x['score']), reverse=True)
+  return {
+    'quiz_name': quiz_name,
+    'players': players,
+    'plays': result['plays']
+  }
     
     
 def convert_result_to_record(result):

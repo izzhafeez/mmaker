@@ -51,6 +51,10 @@ class LikeRequest(BaseModel):
     timing: str
     location: str
 
+class QuizRequest(BaseModel):
+    name: str
+    score: int
+
 class Settings(BaseSettings):
     mongo_password: str
     model_config = SettingsConfigDict(env_file=".env")
@@ -298,6 +302,87 @@ def confirm_timing(meetup_id: str, request: ConfirmTimingRequest, settings: Anno
         "timing": request.timing,
         "location": request.location
     }
+
+@app.post('/api/quiz/{quiz_type}/{quiz_name}')
+def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: Annotated[Settings, Depends(get_settings)]):
+  connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+  client = MongoClient(connection)
+  name = request.name
+  score = request.score
+
+  quiz = client.quiz[quiz_type].find_one({ 'quiz_name': quiz_name })
+  if not quiz:
+    client.quiz[quiz_type].insert_one({
+      'quiz_name': quiz_name,
+      'players': [],
+      'plays': 0
+    })
+    quiz = client.quiz[quiz_type].find_one({ 'quiz_name': quiz_name })
+
+  if not name:
+    client.quiz[quiz_type].update_one({
+      'quiz_name': quiz_name
+    }, {
+      '$set': {
+        'plays': quiz['plays'] + 1
+      }
+    })
+
+  players = quiz['players']
+  # save only the top 10 players
+  player_data = {
+    'name': name,
+    'score': score,
+  }
+
+  player_found = False
+  for player in players:
+    if player['name'] == name:
+      if player['score'] < score:
+        player['score'] = score
+        players.sort(key=lambda x: (x['score']))
+      player_found = True
+
+  if len(players) < 10 and not player_found:
+    players.append(player_data)
+    players.sort(key=lambda x: (x['score']))
+  else:
+    players.append(player_data)
+    players.sort(key=lambda x: (x['score']))
+    players.pop()
+  
+  client.quiz[quiz_type].update_one({
+    'quiz_name': quiz_name
+  }, {
+    '$set': {
+      'players': players,
+      'plays': quiz['plays'] + 1
+    }
+  })
+  return {
+    'players': players,
+    'plays': quiz['plays'] + 1
+  }
+
+@app.get('/api/quiz/{quiz_type}/{quiz_name}')
+def get_map_quiz(quiz_type: str, quiz_name: str, settings: Annotated[Settings, Depends(get_settings)]):
+  connection = f"mongodb+srv://admin:{'di1ayXVEx7Gib0Do'}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+  client = MongoClient(connection)
+  result = client.quiz[quiz_type].find_one({
+    'quiz_name': quiz_name
+  }, {"_id": 0})
+  if not result:
+    client.quiz[quiz_type].insert_one({
+      'quiz_name': quiz_name,
+      'players': [],
+      'plays': 0
+    })
+    return {
+      'quiz_name': quiz_name,
+      'players': [],
+      'plays': 0
+    }
+  return result
     
     
 def convert_result_to_record(result):

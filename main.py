@@ -76,19 +76,19 @@ app.add_middleware(
 def read_root():
     return {"message": "Hello from Koyeb"}
 
-@app.get("/api/tags")
+@app.get("/api/apps/meetupmaker/tags")
 def get_tags(settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
     return client.meetupmaker.halal.find().distinct("tag")
 
-@app.get("/api/mrts")
+@app.get("/api/apps/meetupmaker/mrts")
 def get_mrts(settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
     return [m for m in client.meetupmaker.mrt.find({}, {'_id': False})]
 
-@app.post("/api/create")
+@app.post("/api/apps/meetupmaker/create")
 def create_meetup(create_request: CreateRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -106,13 +106,13 @@ def create_meetup(create_request: CreateRequest, settings: Annotated[Settings, D
     })
     return { "id": str(result.inserted_id) }
 
-@app.get("/api/dates/{meetup_id}")
+@app.get("/api/apps/meetupmaker/dates/{meetup_id}")
 def get_dates(meetup_id: str, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
     return client.meetupmaker["meetup"].find_one({ "_id": ObjectId(meetup_id) }, {'_id': False})
 
-@app.post("/api/dates/{meetup_id}")
+@app.post("/api/apps/meetupmaker/dates/{meetup_id}")
 def join_meetup(meetup_id: str, date_request: DateRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -126,7 +126,7 @@ def join_meetup(meetup_id: str, date_request: DateRequest, settings: Annotated[S
         "participants": client.meetupmaker["meetup"].find_one({ "_id": ObjectId(meetup_id) }, {'_id': False})["participants"]
     }
 
-@app.post("/api/confirm_date/{meetup_id}")
+@app.post("/api/apps/meetupmaker/confirm_date/{meetup_id}")
 def confirm_meetup(meetup_id: str, request: ConfirmDateRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -140,7 +140,7 @@ def confirm_meetup(meetup_id: str, request: ConfirmDateRequest, settings: Annota
         "date": request.date
     }
 
-@app.post("/api/preferences/{meetup_id}")
+@app.post("/api/apps/meetupmaker/preferences/{meetup_id}")
 def add_preferences(meetup_id: str, request: PreferenceRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -160,7 +160,7 @@ def add_preferences(meetup_id: str, request: PreferenceRequest, settings: Annota
     
 MINUTES_PER_KM = 3
 
-@app.post("/api/recommend/{meetup_id}")
+@app.post("/api/apps/meetupmaker/recommend/{meetup_id}")
 def recommend(meetup_id: str, request: RecommendRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -257,7 +257,7 @@ def recommend(meetup_id: str, request: RecommendRequest, settings: Annotated[Set
         "recommendations": new_recommendations
     }        
 
-@app.post("/api/like/{meetup_id}")
+@app.post("/api/apps/meetupmaker/like/{meetup_id}")
 def like(meetup_id: str, request: LikeRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -280,7 +280,7 @@ def like(meetup_id: str, request: LikeRequest, settings: Annotated[Settings, Dep
         "message": "Success"
     }
 
-@app.post("/api/confirm_timing/{meetup_id}")
+@app.post("/api/apps/meetupmaker/confirm_timing/{meetup_id}")
 def confirm_timing(meetup_id: str, request: ConfirmTimingRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
@@ -303,7 +303,7 @@ def confirm_timing(meetup_id: str, request: ConfirmTimingRequest, settings: Anno
         "location": request.location
     }
 
-@app.post('/api/quiz/{quiz_type}/{quiz_name}')
+@app.post('/api/quizzes/{quiz_type}/{quiz_name}')
 def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: Annotated[Settings, Depends(get_settings)]):
   connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
   client = MongoClient(connection)
@@ -365,7 +365,7 @@ def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: A
     'plays': quiz['plays'] + 1
   }
 
-@app.get('/api/quiz/{quiz_type}/{quiz_name}')
+@app.get('/api/quizzes/{quiz_type}/{quiz_name}')
 def get_map_quiz(quiz_type: str, quiz_name: str, settings: Annotated[Settings, Depends(get_settings)]):
   connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
   client = MongoClient(connection)

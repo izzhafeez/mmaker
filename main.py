@@ -577,6 +577,12 @@ class GameData():
             return
         
         self.players[player_name].websocket = None
+        
+        # if all players disconnected, reset game after a while
+        await asyncio.sleep(5 * 60 * 60)
+        if all([player.websocket is None for player in self.players.values()]):
+            self.__init__()
+            return
 
     async def handle_leave(self, player_name: str):
         if player_name not in self.players:
@@ -629,6 +635,7 @@ class GameData():
             await self.notify_all_players("end", {
                 "winner": live_players[0]
             })
+            self.is_active = False
             return
 
         for player_name in self.players:

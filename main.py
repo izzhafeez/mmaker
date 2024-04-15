@@ -416,11 +416,11 @@ class PlayerData():
         self.played_hand = []
         self.is_alive = True
 
-    def draw(self, hand_size: int):
+    async def draw(self, hand_size: int):
         if len(self.deck) < hand_size:
             self.is_alive = False
-            self.websocket.send_json({
-                "method": "lose"
+            await self.websocket.send_json({
+                "method": "lose",
             })
             return
         self.hand = self.deck[:hand_size]
@@ -429,24 +429,31 @@ class PlayerData():
 
 class GameData():
     players: Dict[str, PlayerData]
+    spectators: Dict[str, PlayerData]
     is_active: bool
     deck_size: int
     hand_size: int
     num_played: int
     round_id: int
     game_state: str
+    is_higher: bool
 
     # init
     def __init__(self):
         self.players = {}
+        self.spectators = {}
         self.is_active = False
         self.hands = []
         self.round_id = -1
         self.game_state = "start"
+        self.is_higher = False
 
     def get_player_card_counts(self):
         return {
-            player_name: len(self.players[player_name].deck) for player_name in self.players
+            player_name: {
+                "card_count": len(self.players[player_name].deck),
+                "is_alive": self.players[player_name].is_alive,
+            } for player_name in self.players
         }
     
     def get_live_players(self):
@@ -503,6 +510,7 @@ class GameData():
         })
 
     async def handle_join(self, player_name: str, websocket: WebSocket):
+        print(f"handling join for {player_name}")
         if player_name in self.players and not self.is_active:
             print(f"player {player_name} already exists")
             await websocket.send_json({
@@ -519,7 +527,8 @@ class GameData():
                 await websocket.send_json({
                     "method": "next",
                     "hand": self.players[player_name].hand,
-                    "players": self.get_player_card_counts()
+                    "players": self.get_player_card_counts(),
+                    "is_higher": self.is_higher
                 })
 
             elif self.game_state == "select":
@@ -537,15 +546,17 @@ class GameData():
                     "method": "select",
                     "round_id": self.round_id,
                     "winner": winner,
-                    "played_cards": played_cards
+                    "played_cards": played_cards,
+                    "is_higher": self.is_higher
                 })
             return
         
         if player_name not in self.players and self.is_active:
             print(f"game already started, cannot join")
+            self.spectators[player_name] = PlayerData(websocket)
             await websocket.send_json({
-                "method": "join_error",
-                "message": "Game already started",
+                "method": "spectate",
+                "message": "Game already started, but you can watch!",
                 "players": self.get_player_card_counts()
             })
             return
@@ -559,13 +570,20 @@ class GameData():
         for player_name in self.players:
             if self.players[player_name].websocket is not None:
                 await self.notify_player(player_name, method, data)
+        for player_name in self.spectators:
+            if self.spectators[player_name].websocket is not None:
+                await self.notify_player(player_name, method, data)
 
     async def notify_player(self, player_name: str, method: str, data: Dict[str, Any]):
-        websocket = self.players[player_name].websocket
+        if player_name in self.players:
+            websocket = self.players[player_name].websocket
+        elif player_name in self.spectators:
+            websocket = self.spectators[player_name].websocket
         try:
             await websocket.send_json({
                 "method": method,
                 "players": self.get_player_card_counts(),
+                "is_higher": self.is_higher,
                 **data
             })
         except Exception as e:
@@ -573,11 +591,12 @@ class GameData():
             await self.handle_disconnect(player_name)
 
     async def handle_disconnect(self, player_name: str):
-        if player_name not in self.players:
-            return
-        
-        self.players[player_name].websocket = None
-        
+        if player_name in self.players:
+            self.players[player_name].websocket = None
+            
+        if player_name in self.spectators:
+            self.spectators[player_name].websocket = None
+            
         # if all players disconnected, reset game after a while
         await asyncio.sleep(5 * 60 * 60)
         if all([player.websocket is None for player in self.players.values()]):
@@ -594,11 +613,31 @@ class GameData():
             "name": player_name,
         })
 
+        live_players = self.get_live_players()
+
+        if self.is_active and len(live_players) < 2:
+            if len(live_players) == 1:
+                await self.notify_all_players("end", {
+                    "winner": live_players[0]
+                })
+            else:
+                await self.notify_all_players("end", {
+                    "winner": "No one"
+                })
+            self.is_active = False
+
+        if len(self.players) == 0:
+            self.__init__()
+
     async def handle_start(self, deck_size: int, hand_size: int):
         self.is_active = True
         self.deck_size = deck_size
         self.hand_size = hand_size
         shuffled_deck = np.random.permutation(deck_size).tolist()
+        # revive all players
+        for player_name in self.players:
+            self.players[player_name].is_alive = True
+
         # split deck and send to players
         n_players = len(self.players)
 
@@ -626,26 +665,37 @@ class GameData():
 
     async def handle_next(self):
         print("handling next")
+        self.is_higher = not self.is_higher
         self.num_played = 0
         self.round_id = -1
         self.game_state = "start"
+
+        for player_name in self.get_live_players():
+            await self.players[player_name].draw(self.hand_size)
+            self.players[player_name].played_hand = []
+
         live_players = self.get_live_players()
 
         if len(live_players) < 2:
+            winner = "No one"
+            if len(live_players) == 1:
+                winner = live_players[0]
             await self.notify_all_players("end", {
-                "winner": live_players[0]
+                "winner": winner
             })
             self.is_active = False
             return
-
-        for player_name in self.players:
-            self.players[player_name].draw(self.hand_size)
-            self.players[player_name].played_hand = []
         
         # let all the calculations happen before notifying
         for player_name in self.players:
             await self.notify_player(player_name, "next", {
                 "hand": self.players[player_name].hand,
+                "is_higher": self.is_higher
+            })
+        for player_name in self.spectators:
+            await self.notify_player(player_name, "next", {
+                "hand": [],
+                "is_higher": self.is_higher
             })
         print("finished next")
 
@@ -657,13 +707,13 @@ class GameData():
             return
 
         played_cards = []
-        for player_name in self.players:
+        for player_name in self.get_live_players():
             played_card = self.players[player_name].played_hand[self.round_id]
             played_card['name'] = player_name
             played_cards.append(played_card) # card should be {name, card_id, card_value}
 
         # sort by card value
-        played_cards.sort(key=lambda x: x['card_value'], reverse=True)
+        played_cards.sort(key=lambda x: x['card_value'], reverse=self.is_higher)
         winner = played_cards[0]['name']
 
         # notify all players

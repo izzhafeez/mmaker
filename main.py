@@ -407,12 +407,14 @@ class PlayerData():
     hand: List[int]
     played_hand: List[Tuple[int, float]]
     is_alive: bool
+    buffer: int
 
     # init
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.deck = []
         self.hand = []
+        self.buffer = -1
         self.played_hand = []
         self.is_alive = True
 
@@ -423,9 +425,17 @@ class PlayerData():
                 "method": "lose",
             })
             return
-        self.hand = self.deck[:hand_size]
-        self.deck = self.deck[hand_size:]
-        self.played_hand = []
+        try:
+            self.hand = self.deck[:hand_size]
+            self.deck = self.deck[hand_size:]
+            if self.buffer != -1:
+                self.hand.append(self.buffer)
+                self.buffer = -1
+            elif len(self.deck) > 0:
+                self.hand.append(self.deck.pop(0))
+            self.played_hand = []
+        except Exception as e:
+            print(f"Error drawing for: {e}")
 
 class GameData():
     players: Dict[str, PlayerData]
@@ -703,6 +713,9 @@ class GameData():
         print("evaluating")
         self.round_id += 1
         if self.round_id >= self.hand_size:
+            for player_name in self.get_live_players():
+                if len(self.players[player_name].played_hand) == self.hand_size + 1:
+                    self.players[player_name].buffer = self.players[player_name].played_hand[-1]["card_id"]
             await self.handle_next()
             return
 

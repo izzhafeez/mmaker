@@ -714,7 +714,15 @@ class GameData():
 
         # sort by card value
         played_cards.sort(key=lambda x: x['card_value'], reverse=self.is_higher)
-        winner = played_cards[0]['name']
+        if played_cards[0]['card_value'] == played_cards[1]['card_value']:
+            winner = ""
+            winning_value = played_cards[0]['card_value']
+            for card in played_cards:
+                if card['card_value'] != winning_value:
+                    break
+                self.players[card['name']].deck.append(card['card_id'])
+        else:
+            winner = played_cards[0]['name']
 
         # notify all players
         await self.notify_all_players("select", {
@@ -725,6 +733,10 @@ class GameData():
 
         self.game_state = "select"
         print("finished evaluating")
+
+        if winner == "":
+            await asyncio.sleep(5)
+            await self.handle_evaluate()
 
 class GamesData():
     games_data: Dict[str, Dict[str, GameData]]

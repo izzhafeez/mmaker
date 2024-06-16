@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Dict, List, TypedDict, Tuple
+from typing import Any, Callable, Dict, List, TypedDict, Tuple, Optional
 from pymongo import MongoClient
 from fastapi import FastAPI, Request, Depends, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -455,7 +455,7 @@ class GameData():
         self.is_active = False
         self.hands = []
         self.round_id = -1
-        self.game_state = "start"
+        self.game_state = "lobby"
         self.is_higher = False
 
     def get_player_card_counts(self):
@@ -522,58 +522,69 @@ class GameData():
     async def handle_join(self, player_name: str, websocket: WebSocket):
         print(f"handling join for {player_name}")
         if player_name in self.players and not self.is_active:
-            print(f"player {player_name} already exists")
-            await websocket.send_json({
-                "method": "join_error",
-                "message": "Player already exists",
-                "players": self.get_player_card_counts()
-            })
+            await self.handle_join_player_exists(player_name, websocket)
             return
         
         if player_name in self.players and self.is_active:
             print(f"reconnecting player {player_name}")
             self.players[player_name].websocket = websocket
             if self.game_state == "start":
-                await websocket.send_json({
-                    "method": "next",
-                    "hand": self.players[player_name].hand,
-                    "players": self.get_player_card_counts(),
-                    "is_higher": self.is_higher
-                })
-
+                await self.handle_reconnect_start(player_name, websocket)
             elif self.game_state == "select":
-                played_cards = []
-                for player_name in self.players:
-                    played_card = self.players[player_name].played_hand[self.round_id]
-                    played_card['name'] = player_name
-                    played_cards.append(played_card) # card should be {name, card_id, card_value}
-
-                # sort by card value
-                played_cards.sort(key=lambda x: x['card_value'], reverse=True)
-                winner = played_cards[0]['name']
-
-                await websocket.send_json({
-                    "method": "select",
-                    "round_id": self.round_id,
-                    "winner": winner,
-                    "played_cards": played_cards,
-                    "is_higher": self.is_higher
-                })
+                await self.handle_reconnect_select(player_name, websocket)
             return
         
         if player_name not in self.players and self.is_active:
-            print(f"game already started, cannot join")
-            self.spectators[player_name] = PlayerData(websocket)
-            await websocket.send_json({
-                "method": "spectate",
-                "message": "Game already started, but you can watch!",
-                "players": self.get_player_card_counts()
-            })
+            await self.handle_cannot_join(player_name, websocket)
             return
 
         self.players[player_name] = PlayerData(websocket)
         await self.notify_all_players("join", {
             "name": player_name
+        })
+
+    async def handle_join_player_exists(self, player_name: str, websocket: WebSocket):
+        print(f"player {player_name} already exists")
+        await websocket.send_json({
+            "method": "join_error",
+            "message": "Player already exists",
+            "players": self.get_player_card_counts()
+        })
+
+    async def handle_reconnect_start(self, player_name: str, websocket: WebSocket):
+        await websocket.send_json({
+            "method": "next",
+            "hand": self.players[player_name].hand,
+            "players": self.get_player_card_counts(),
+            "is_higher": self.is_higher
+        })
+
+    async def handle_reconnect_select(self, player_name: str, websocket: WebSocket):
+        played_cards = []
+        for player_name in self.players:
+            played_card = self.players[player_name].played_hand[self.round_id]
+            played_card['name'] = player_name
+            played_cards.append(played_card) # card should be {name, card_id, card_value}
+
+        # sort by card value
+        played_cards.sort(key=lambda x: x['card_value'], reverse=True)
+        winner = played_cards[0]['name']
+
+        await websocket.send_json({
+            "method": "select",
+            "round_id": self.round_id,
+            "winner": winner,
+            "played_cards": played_cards,
+            "is_higher": self.is_higher
+        })
+
+    async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
+        print(f"game already started, cannot join")
+        self.spectators[player_name] = PlayerData(websocket)
+        await websocket.send_json({
+            "method": "spectate",
+            "message": "Game already started, but you can watch!",
+            "players": self.get_player_card_counts()
         })
 
     async def notify_all_players(self, method: str, data: Dict[str, Any]):
@@ -603,6 +614,8 @@ class GameData():
     async def handle_disconnect(self, player_name: str):
         if player_name in self.players:
             self.players[player_name].websocket = None
+            if self.game_state == "lobby":
+                await self.handle_leave(player_name)
             
         if player_name in self.spectators:
             self.spectators[player_name].websocket = None
@@ -694,6 +707,7 @@ class GameData():
                 "winner": winner
             })
             self.is_active = False
+            self.game_state = "lobby"
             return
         
         # let all the calculations happen before notifying
@@ -751,7 +765,7 @@ class GameData():
             await asyncio.sleep(5)
             await self.handle_evaluate()
 
-class GamesData():
+class StatAttackData():
     games_data: Dict[str, Dict[str, GameData]]
 
     # init
@@ -770,7 +784,7 @@ class GamesData():
         
         return self.games_data[game_type][game_id]
 
-games_data = GamesData()
+games_data = StatAttackData()
 
 @app.websocket("/api/games/stat-attack/{game_type}/{game_id}")
 async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str):
@@ -793,3 +807,320 @@ def convert_result_to_record(result):
         result["lat"],
         result["lng"],
     )
+
+from enum import Enum
+class MathPlayerState(Enum):
+    LOBBY = 'LOBBY'
+    TURN = 'TURN'
+    WAITING = 'WAITING'
+    DEAD = 'DEAD'
+    SPECTATING = 'SPECTATING'
+
+class MathGameState(Enum):
+    LOBBY = 'LOBBY'
+    PLAYING = 'PLAYING'
+
+class MathPlayerData():
+    websocket: WebSocket
+    hand: List[int]
+    status: MathPlayerState
+
+    # init
+    def __init__(self, websocket: WebSocket):
+        self.websocket = websocket
+        self.hand = []
+        self.state = MathPlayerState.LOBBY
+
+DECK_SIZE = 60
+class MathDeckData():
+    deck: List[int]
+
+    def __init__(self): 
+        self.deck = np.random.permutation(DECK_SIZE).tolist()
+
+    def draw(self):
+        return self.deck.pop(0)
+    
+    def add(self, card_id: int):
+        self.deck.append(card_id)
+
+STARTING_NUMBER = 0
+LOWEST_NUMBER = -100
+HIGHEST_NUMBER = 100
+class MathGameData():
+    players: Dict[str, MathPlayerData]
+    spectators: Dict[str, MathPlayerData]
+    live_players: List[str]
+    player: str
+    deck: MathDeckData
+    state: MathGameState
+    number: List[int]
+    last_played: int
+
+    # init
+    def __init__(self):
+        self.players = {}
+        self.spectators = {}
+        self.live_players = []
+        self.player = None
+        self.deck = MathDeckData()
+        self.state = MathGameState.LOBBY
+        self.number = STARTING_NUMBER
+        self.last_played = None
+    
+    def next_player(self):
+        self.players[self.player].state = MathPlayerState.WAITING
+        self.player = None
+        while self.player is None:
+            self.player = self.live_players.pop(0)
+            if self.players[self.player].state == MathPlayerState.DEAD:
+                self.player = None
+        self.players[self.player].state = MathPlayerState.TURN
+
+    async def handle_client(self, websocket: WebSocket):
+        data = {}
+        try:
+            while True:
+                data = await websocket.receive_json()
+                method = data["method"]
+
+                if method == "join":
+                    player_name = data["name"]
+                    await self.handle_join(player_name, websocket)
+
+                elif method == "leave":
+                    player_name = data["name"]
+                    await self.handle_leave(player_name)
+
+                elif method == "start":
+                    await self.handle_start()
+
+                elif method == "play":
+                    player_name = data["name"]
+                    if self.players[player_name].state != MathPlayerState.TURN:
+                        continue
+
+                    card_id = data["card_id"]
+                    self.last_played = card_id
+                    self.number = data["number"]
+                    self.deck.add(card_id)
+                    if self.number > HIGHEST_NUMBER or self.number < LOWEST_NUMBER:
+                        self.players[player_name].state = MathPlayerState.DEAD
+                        await self.notify_player(self.player, "DEAD", {})
+                    else:
+                        self.live_players.append(player_name)
+
+                    self.players[player_name].hand.remove(card_id)
+                    self.players[player_name].hand.append(self.deck.draw())
+
+                    self.next_player()
+                    await self.notify_all_players("PLAY", {
+                        "last_player": player_name,
+                    })
+
+                    # check if game is over
+                    if len(self.live_players) == 0:
+                        await self.notify_all_players("END", {
+                            "winner": self.player
+                        })
+                        self.state = MathGameState.LOBBY
+                        return
+
+                    await asyncio.sleep(3)
+                    await self.notify_player(self.player, "TURN", {})
+
+
+        except WebSocketDisconnect as e:
+            player_name = data.get('name', '')
+            if player_name:
+                print(f"handling disconnect for {player_name}: {e}")
+                await self.handle_disconnect(player_name)
+
+    async def handle_connect(self, websocket: WebSocket):
+        print("handling connect")
+        await websocket.send_json({
+            "method": "CONNECT",
+            "players": self.get_player_life_status()
+        })
+
+    def get_player_life_status(self):
+        return {
+            player_name: self.players[player_name].state.value for player_name in self.players
+        }
+
+    async def handle_join(self, player_name: str, websocket: WebSocket):
+        print(f"handling join for {player_name}")
+        if player_name in self.players and self.state == MathGameState.LOBBY:
+            await self.handle_join_player_exists(player_name, websocket)
+            return
+        
+        if player_name in self.players and self.state != MathGameState.LOBBY:
+            print(f"reconnecting player {player_name}")
+            await self.handle_reconnect(player_name, websocket)
+            return
+        
+        if player_name not in self.players and self.state != MathGameState.LOBBY:
+            await self.handle_cannot_join(player_name, websocket)
+            return
+
+        self.players[player_name] = MathPlayerData(websocket)
+        await self.notify_all_players("JOIN", {
+            "name": player_name
+        })
+
+    async def handle_join_player_exists(self, player_name: str, websocket: WebSocket):
+        print(f"player {player_name} already exists")
+        await websocket.send_json({
+            "method": "JOIN_ERROR",
+            "message": "Player already exists",
+            "players": self.get_player_life_status()
+        })
+
+    async def handle_reconnect(self, player_name: str, websocket: WebSocket):
+        self.players[player_name].websocket = websocket
+        await self.notify_player(player_name, "RECONNECT", {})
+
+    async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
+        print(f"game already started, cannot join")
+        self.spectators[player_name] = MathPlayerData(websocket)
+        await websocket.send_json({
+            "method": "SPECTATE",
+            "message": "Game already started, but you can watch!",
+            "players": self.get_player_life_status()
+        })
+
+    async def notify_all_players(self, method: str, data: Dict[str, Any]):
+        for player_name in self.players:
+            if self.players[player_name].websocket is not None:
+                await self.notify_player(player_name, method, data)
+        for player_name in self.spectators:
+            if self.spectators[player_name].websocket is not None:
+                await self.notify_player(player_name, method, data)
+
+    async def notify_player(self, player_name: str, method: str, data: Dict[str, Any]):
+        print(f"Notifying {player_name} with {method}")
+        if player_name in self.players:
+            websocket = self.players[player_name].websocket
+        elif player_name in self.spectators:
+            websocket = self.spectators[player_name].websocket
+        try:
+            await websocket.send_json({
+                "method": method,
+                "players": self.get_player_life_status(),
+                "player": self.player,
+                "state": self.state.value,
+                "number": self.number,
+                "hand": self.players[player_name].hand,
+                "last_played": self.last_played,
+                **data
+            })
+        except Exception as e:
+            print(f"Error sending to {player_name}: {e}. Disconnecting...")
+            await self.handle_disconnect(player_name)
+
+    async def handle_disconnect(self, player_name: str):
+        print(self.state)
+        if player_name in self.players:
+            self.players[player_name].websocket = None
+            if self.state == MathGameState.LOBBY:
+                await self.handle_leave(player_name)
+            
+        if player_name in self.spectators:
+            self.spectators[player_name].websocket = None
+            
+        # if all players disconnected, reset game after a while
+        await asyncio.sleep(5 * 60 * 60)
+        if all([player.websocket is None for player in self.players.values()]):
+            self.__init__()
+            return
+
+    async def handle_leave(self, player_name: str):
+        if player_name not in self.players:
+            return
+        
+        self.players.pop(player_name)
+        print(f"player {player_name} left")
+        await self.notify_all_players("LEAVE", {
+            "name": player_name,
+        })
+
+        if self.state == MathGameState.PLAYING and len(self.live_players) < 2:
+            if len(self.live_players) == 1:
+                await self.notify_all_players("END", {
+                    "winner": self.live_players[0]
+                })
+            else:
+                await self.notify_all_players("END", {
+                    "winner": "No one"
+                })
+            self.state = MathGameState.LOBBY
+
+        if len(self.players) == 0:
+            self.__init__()
+
+    async def handle_start(self):
+        self.deck = MathDeckData()
+        self.number = STARTING_NUMBER
+        self.state = MathGameState.PLAYING
+
+        # split deck and send to players
+        n_players = len(self.players)
+
+        # need at least 2 players
+        if n_players < 2:
+            await self.notify_all_players("START_ERROR", {
+                "message": "Need at least 2 players"
+            })
+            return
+        
+        # revive all players
+        for player_name in self.players:
+            self.players[player_name].state = MathPlayerState.WAITING
+
+        print(f"starting game with {n_players} players")
+        # draw 3 cards per person
+        for player_name in self.players:
+            self.players[player_name].hand = [self.deck.draw() for _ in range(3)]
+
+        self.live_players = list(self.players.keys())
+        self.player = self.live_players.pop(0)
+
+        # let all the calculations happen before notifying
+        for player_name in self.players:
+            await self.notify_player(player_name, "WAIT", {})
+
+        self.players[self.player].state = MathPlayerState.TURN
+        await self.notify_player(self.player, "TURN", {})
+
+class MathAttackData():
+    math_data: Dict[str, GameData]
+
+    # init
+    def __init__(self):
+        self.math_data = {}
+
+    def game_data_exists(self, game_id: str):
+        return game_id in self.math_data
+
+    def get_game_data(self, game_id: str):
+        
+        if game_id not in self.math_data:
+            self.math_data[game_id] = MathGameData()
+        
+        return self.math_data[game_id]
+    
+math_data = MathAttackData()
+
+@app.websocket("/api/games/math-attack/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not math_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: MathGameData = math_data.get_game_data(game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)

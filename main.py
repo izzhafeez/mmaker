@@ -831,7 +831,7 @@ class MathPlayerData():
         self.hand = []
         self.state = MathPlayerState.LOBBY
 
-DECK_SIZE = 60
+DECK_SIZE = 120
 class MathDeckData():
     deck: List[int]
 
@@ -883,6 +883,7 @@ class MathGameData():
             while True:
                 data = await websocket.receive_json()
                 method = data["method"]
+                print(f"received {method}")
 
                 if method == "join":
                     player_name = data["name"]

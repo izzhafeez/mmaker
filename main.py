@@ -834,15 +834,18 @@ class MathPlayerData():
 DECK_SIZE = 120
 class MathDeckData():
     deck: List[int]
+    current_index: int
 
-    def __init__(self): 
-        self.deck = np.random.permutation(DECK_SIZE).tolist()
+    def __init__(self, deck_size: int = DECK_SIZE): 
+        self.deck = np.random.permutation(deck_size).tolist()
+        self.current_index = 0
 
     def draw(self):
-        return self.deck.pop(0)
-    
-    def add(self, card_id: int):
-        self.deck.append(card_id)
+        self.current_index = (self.current_index + 1) % len(self.deck)
+        return self.deck[self.current_index]
+
+    def get_size(self):
+        return len(self.deck)
 
 STARTING_NUMBER = 0
 LOWEST_NUMBER = -100
@@ -886,6 +889,9 @@ class MathGameData():
                 print(f"received {method}")
 
                 if method == "join":
+                    deck_size = data["deck_size"]
+                    if (deck_size != self.deck.get_size()):
+                        self.deck = MathDeckData(deck_size=deck_size)
                     player_name = data["name"]
                     await self.handle_join(player_name, websocket)
 
@@ -904,7 +910,6 @@ class MathGameData():
                     card_id = data["card_id"]
                     self.last_played = card_id
                     self.number = data["number"]
-                    self.deck.add(card_id)
                     if self.number > HIGHEST_NUMBER or self.number < LOWEST_NUMBER:
                         self.players[player_name].state = MathPlayerState.DEAD
                         await self.notify_player(self.player, "DEAD", {})
@@ -925,10 +930,9 @@ class MathGameData():
                             "winner": self.player
                         })
                         self.state = MathGameState.LOBBY
-                        return
-
-                    await asyncio.sleep(3)
-                    await self.notify_player(self.player, "TURN", {})
+                    else:
+                        await asyncio.sleep(3)
+                        await self.notify_player(self.player, "TURN", {})
 
 
         except WebSocketDisconnect as e:
@@ -1060,7 +1064,6 @@ class MathGameData():
             self.__init__()
 
     async def handle_start(self):
-        self.deck = MathDeckData()
         self.number = STARTING_NUMBER
         self.state = MathGameState.PLAYING
 
@@ -1085,13 +1088,14 @@ class MathGameData():
 
         self.live_players = list(self.players.keys())
         self.player = self.live_players.pop(0)
+        self.players[self.player].state = MathPlayerState.TURN
 
         # let all the calculations happen before notifying
         for player_name in self.players:
-            await self.notify_player(player_name, "WAIT", {})
-
-        self.players[self.player].state = MathPlayerState.TURN
-        await self.notify_player(self.player, "TURN", {})
+            if player_name == self.player:
+                await self.notify_player(player_name, "TURN", {})
+            else:
+                await self.notify_player(player_name, "WAIT", {})
 
 class MathAttackData():
     math_data: Dict[str, GameData]

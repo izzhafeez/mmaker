@@ -8,11 +8,18 @@ Quantity: 3.
 """
 
 assistant_example = """
-[
-    "What is your favorite programming language?",
-    "If you could choose one programming langauge for the rest of your life, what would it be?",
-    "What was your favourite experience in a hackathon like?"
-]
+{
+  "truths": [
+    "What is the most useless programming language?",
+    "What is the best programming language?",
+    "Who do you think is the worst programmer in the room?"
+  ],
+  "dares": [
+    "Add a random tech influencer on LinkedIn.",
+    "Post something, anything, on LinkedIn.",
+    "Let the others roast your codebase for 5 minutes."
+  ]
+}
 """
 
 def get_prompt(purpose, information, quantity):
@@ -20,8 +27,9 @@ def get_prompt(purpose, information, quantity):
   Purpose: {purpose}.
   Other information: the participants are {information}.
   Quantity: {quantity}.
-  I want you to create prompts that will help start a conversation between the participants.
-  The more bizarre the questions, the better.
+  Generate a list of truth or dare questions that give the most fun experience.
+  Do not suggest illegal dares.
+  The more bizarre the prompts, the better.
   """
 
 def get_messages(prompt):
@@ -31,7 +39,7 @@ def get_messages(prompt):
         {"role": "user", "content": prompt}
   ]
 
-async def generate_cs_questions(client, purpose, information, quantity):
+async def generate_tod_questions(client, purpose, information, quantity):
   prompt = get_prompt(purpose, information, quantity)
   messages = get_messages(prompt)
   response = client.chat.completions.create(
@@ -40,10 +48,12 @@ async def generate_cs_questions(client, purpose, information, quantity):
     temperature=0.9,
   )
   questions = json.loads(response.choices[0].message.content)
+  truths = questions["truths"]
+  dares = questions["dares"]
   total_tokens = response.usage.total_tokens
-  return questions, total_tokens
+  return truths, dares, total_tokens
 
-class ConvoStarterData():
+class TruthDareData():
   games: Dict[str, List[str]]
   total_count: int
   

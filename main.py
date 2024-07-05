@@ -16,6 +16,7 @@ from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
+from truth_or_dare import generate_tod_questions, TruthDareData
 
 from openai import OpenAI
 
@@ -527,7 +528,7 @@ class UpdateBurningBridgesRequest(BaseModel):
     questions: List[str]
 
 @app.post("/api/games/burning-bridges/{game_id}/update")
-async def update_questions_at_id(game_id: str, request: UpdateBurningBridgesRequest):
+async def update_bb_questions_at_id(game_id: str, request: UpdateBurningBridgesRequest):
     burning_data.games[game_id] = request.questions
 
     return {
@@ -535,7 +536,7 @@ async def update_questions_at_id(game_id: str, request: UpdateBurningBridgesRequ
     }
 
 @app.get("/api/games/burning-bridges/{game_id}")
-async def get_questions_at_id(game_id: str):
+async def get_bb_questions_at_id(game_id: str):
     if game_id not in burning_data.games:
         return {
             "questions": []
@@ -543,4 +544,66 @@ async def get_questions_at_id(game_id: str):
     
     return {
         "questions": burning_data.games[game_id],
+    }
+
+tod_data = TruthDareData()
+
+class TruthDareRequest(BaseModel):
+    purpose: str
+    information: str
+    quantity: int
+
+@app.post("/api/games/truth-or-dare/{game_id}/generate")
+async def generate_tod_questions_at_id(game_id: str, request: TruthDareRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    if tod_data.has_reached_limit():
+        return {
+            "error": "Limit reached"
+        }
+
+    client = OpenAI(
+        api_key=settings.openai_api_key,
+    )
+    truths, dares, total_tokens = await generate_tod_questions(client, request.purpose, request.information, request.quantity)
+    print(truths, dares)
+    if game_id not in tod_data.games:
+        tod_data.games[game_id] = {
+            "truths": [],
+            "dares": []
+        }
+    tod_data.games[game_id]["truths"].extend(truths)
+    tod_data.games[game_id]["dares"].extend(dares)
+    tod_data.total_count += total_tokens
+
+    return {
+        "truths": tod_data.games[game_id]["truths"],
+        "dares": tod_data.games[game_id]["dares"]
+    }
+
+class UpdateTruthDareRequest(BaseModel):
+    truths: List[str]
+    dares: List[str]
+
+@app.post("/api/games/truth-or-dare/{game_id}/update")
+async def update_tod_questions_at_id(game_id: str, request: UpdateTruthDareRequest):
+    tod_data.games[game_id] = {
+        "truths": request.truths,
+        "dares": request.dares
+    }
+
+    return {
+        "truths": tod_data.games[game_id]["truths"],
+        "dares": tod_data.games[game_id]["dares"]
+    }
+
+@app.get("/api/games/truth-or-dare/{game_id}")
+async def get_tod_questions_at_id(game_id: str):
+    if game_id not in tod_data.games:
+        return {
+            "truths": [],
+            "dares": []
+        }
+    
+    return {
+        "truths": tod_data.games[game_id]["truths"],
+        "dares": tod_data.games[game_id]["dares"]
     }

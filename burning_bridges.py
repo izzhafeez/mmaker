@@ -9,9 +9,9 @@ Quantity: 3.
 
 assistant_example = """
 [
-    "What is your favorite programming language?",
-    "If you could choose one programming langauge for the rest of your life, what would it be?",
-    "What was your favourite experience in a hackathon like?"
+    "In a hackathon, who would you least want as your coding partner?",
+    "If we had to rely on someone to fix a critical server issue, who would probably make things worse instead of better?",
+    "Who do you think would be the most likely to accidentally commit confidential information into a public code repository?"
 ]
 """
 
@@ -20,6 +20,7 @@ def get_prompt(purpose, information, quantity):
   Purpose: {purpose}.
   Other information: the participants are {information}.
   Quantity: {quantity}.
+  I want you to generate questions where the answer must be one of the players and players would not want to be chosen.
   The more bizarre the questions, the better.
   """
 
@@ -30,7 +31,7 @@ def get_messages(prompt):
         {"role": "user", "content": prompt}
   ]
 
-async def generate_cs_questions(client, purpose, information, quantity):
+async def generate_bb_questions(client, purpose, information, quantity):
   prompt = get_prompt(purpose, information, quantity)
   messages = get_messages(prompt)
   response = client.chat.completions.create(
@@ -42,7 +43,7 @@ async def generate_cs_questions(client, purpose, information, quantity):
   total_tokens = response.usage.total_tokens
   return questions, total_tokens
 
-class ConvoStarterData():
+class BurningBridgesData():
   games: Dict[str, List[str]]
   total_count: int
   

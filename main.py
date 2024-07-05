@@ -14,7 +14,9 @@ import heapq
 import numpy as np
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
-from convo_starter import generate_questions, ConvoStarterData
+from convo_starter import generate_cs_questions, ConvoStarterData
+from burning_bridges import generate_bb_questions, BurningBridgesData
+
 from openai import OpenAI
 
 class RecRequest(BaseModel):
@@ -451,7 +453,7 @@ class ConvoStarterRequest(BaseModel):
     quantity: int
 
 @app.post("/api/games/convo-starter/{game_id}/generate")
-async def generate_questions_at_id(game_id: str, request: ConvoStarterRequest, settings: Annotated[Settings, Depends(get_settings)]):
+async def generate_cs_questions_at_id(game_id: str, request: ConvoStarterRequest, settings: Annotated[Settings, Depends(get_settings)]):
     if convo_data.has_reached_limit():
         return {
             "error": "Limit reached"
@@ -460,7 +462,7 @@ async def generate_questions_at_id(game_id: str, request: ConvoStarterRequest, s
     client = OpenAI(
         api_key=settings.openai_api_key,
     )
-    questions, total_tokens = await generate_questions(client, request.purpose, request.information, request.quantity)
+    questions, total_tokens = await generate_cs_questions(client, request.purpose, request.information, request.quantity)
     print(questions)
     if game_id not in convo_data.games:
         convo_data.games[game_id] = []
@@ -475,7 +477,7 @@ class UpdateConvoStarterRequest(BaseModel):
     questions: List[str]
 
 @app.post("/api/games/convo-starter/{game_id}/update")
-async def update_questions_at_id(game_id: str, request: UpdateConvoStarterRequest):
+async def update_cs_questions_at_id(game_id: str, request: UpdateConvoStarterRequest):
     convo_data.games[game_id] = request.questions
 
     return {
@@ -483,7 +485,7 @@ async def update_questions_at_id(game_id: str, request: UpdateConvoStarterReques
     }
 
 @app.get("/api/games/convo-starter/{game_id}")
-async def get_questions_at_id(game_id: str):
+async def get_cs_questions_at_id(game_id: str):
     if game_id not in convo_data.games:
         return {
             "questions": []
@@ -491,4 +493,54 @@ async def get_questions_at_id(game_id: str):
     
     return {
         "questions": convo_data.games[game_id],
+    }
+
+burning_data = BurningBridgesData()
+
+class BurningBridgesRequest(BaseModel):
+    purpose: str
+    information: str
+    quantity: int
+
+@app.post("/api/games/burning-bridges/{game_id}/generate")
+async def generate_bb_questions_at_id(game_id: str, request: BurningBridgesRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    if burning_data.has_reached_limit():
+        return {
+            "error": "Limit reached"
+        }
+
+    client = OpenAI(
+        api_key=settings.openai_api_key,
+    )
+    questions, total_tokens = await generate_bb_questions(client, request.purpose, request.information, request.quantity)
+    print(questions)
+    if game_id not in burning_data.games:
+        burning_data.games[game_id] = []
+    burning_data.games[game_id].extend(questions)
+    burning_data.total_count += total_tokens
+
+    return {
+        "questions": burning_data.games[game_id],
+    }
+
+class UpdateBurningBridgesRequest(BaseModel):
+    questions: List[str]
+
+@app.post("/api/games/burning-bridges/{game_id}/update")
+async def update_questions_at_id(game_id: str, request: UpdateBurningBridgesRequest):
+    burning_data.games[game_id] = request.questions
+
+    return {
+        "questions": burning_data.games[game_id],
+    }
+
+@app.get("/api/games/burning-bridges/{game_id}")
+async def get_questions_at_id(game_id: str):
+    if game_id not in burning_data.games:
+        return {
+            "questions": []
+        }
+    
+    return {
+        "questions": burning_data.games[game_id],
     }

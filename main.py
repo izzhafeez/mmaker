@@ -15,6 +15,7 @@ import numpy as np
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
+from color_guessr import ColorData, ColorGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
@@ -460,6 +461,22 @@ async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str)
         })
 
     game_data: HedgerGameData = hedger_data.get_game_data(game_type, game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+color_data = ColorData()
+
+@app.websocket("/api/games/color-guessr/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not color_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: ColorGameData = color_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 

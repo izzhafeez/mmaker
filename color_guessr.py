@@ -49,12 +49,20 @@ class ColorGameData():
         # random red value
         red = np.random.randint(0, 256)
         red_as_hex = hex(red)[2:]
+        if len(red_as_hex) == 1:
+            red_as_hex = f"0{red_as_hex}"
         # random green value
         green = np.random.randint(0, 256)
         green_as_hex = hex(green)[2:]
+        if len(green_as_hex) == 1:
+            green_as_hex = f"0{green_as_hex}"
+
         # random blue value
         blue = np.random.randint(0, 256)
         blue_as_hex = hex(blue)[2:]
+        if len(blue_as_hex) == 1:
+            blue_as_hex = f"0{blue_as_hex}"
+
         self.color = f"{red_as_hex}{green_as_hex}{blue_as_hex}"
 
     def get_score_of_color(self, color: str):

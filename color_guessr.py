@@ -18,6 +18,7 @@ class ColorPlayerData():
     played_color: str
     added_score: int
     points: int
+    acknowledged: bool
 
     # init
     def __init__(self, websocket: WebSocket):
@@ -25,6 +26,7 @@ class ColorPlayerData():
         self.played_color = None
         self.points = 0
         self.added_score = 0
+        self.acknowledged = False
 
 ROUNDS = 10
 
@@ -84,6 +86,7 @@ class ColorGameData():
                 "points": self.players[player_name].points,
                 "played_color": self.players[player_name].played_color if self.players[player_name].played_color is not None else None,
                 "added_score": self.players[player_name].added_score if self.players[player_name].added_score is not None else None,
+                "acknowledged": self.players[player_name].acknowledged
             } for player_name in self.players
         }
     
@@ -113,16 +116,21 @@ class ColorGameData():
                     player_name = data["name"]
                     print(f"{player_name} played {played_color}")
 
-                    if self.players[player_name].played_color == None:
-                        self.num_played += 1
                     self.players[player_name].played_color = played_color
-                    if self.num_played == len(self.get_live_players()):
+
+                    await self.notify_all_players("play", {})
+
+                    if all(self.players[player_name].played_color is not None for player_name in self.get_live_players()):
                         await self.handle_evaluate()
 
                 elif method == "acknowledge":
                     print("acknowledged")
-                    self.num_played += 1
-                    if self.num_played == len(self.get_live_players()):
+                    player_name = data["name"]
+                    self.players[player_name].acknowledged = True
+
+                    await self.notify_all_players("acknowledge", {})
+
+                    if all(self.players[player_name].acknowledged for player_name in self.get_live_players()):
                         await self.handle_next()
 
         except WebSocketDisconnect as e:
@@ -185,6 +193,7 @@ class ColorGameData():
         })
 
     async def notify_all_players(self, method: str, data: Dict[str, Any]):
+        print(f"notifying all players with {method}")
         for player_name in self.players:
             if self.players[player_name].websocket is not None:
                 await self.notify_player(player_name, method, data)
@@ -273,11 +282,12 @@ class ColorGameData():
             self.game_state = "lobby"
             return
 
-        self.num_played = 0
         self.game_state = "start"
 
         for player_name in self.get_live_players():
             self.players[player_name].played_color = None
+            self.players[player_name].added_score = None
+            self.players[player_name].acknowledged = False
 
         live_players = self.get_live_players()
 
@@ -318,7 +328,6 @@ class ColorGameData():
         })
 
         self.round_id += 1
-        self.num_played = 0
         print("finished evaluating")
 
 class ColorData():

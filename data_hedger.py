@@ -17,12 +17,14 @@ class HedgerPlayerData():
     websocket: WebSocket
     played_card: PlayedCard
     points: int
+    acknowledged: bool
 
     # init
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
         self.played_card = None
         self.points = 0
+        self.acknowledged = False
 
 OPTIONS_SIZE = 10
 ROUNDS = 10
@@ -88,17 +90,20 @@ class HedgerGameData():
                     played_card = PlayedCard(card_id, data_points)
                     player_name = data["name"]
                     print(f"{player_name} played {played_card.card_id} with data {played_card.data}")
-
-                    if self.players[player_name].played_card == None:
-                        self.num_played += 1
                     self.players[player_name].played_card = played_card
-                    if self.num_played == len(self.get_live_players()):
+                    await self.notify_all_players("play", {})
+
+                    if all(self.players[player_name].played_card is not None for player_name in self.get_live_players()):
                         await self.handle_evaluate()
 
                 elif method == "acknowledge":
                     print("acknowledged")
-                    self.num_played += 1
-                    if self.num_played == len(self.get_live_players()):
+
+                    player_name = data["name"]
+                    self.players[player_name].acknowledged = True
+                    await self.notify_all_players("acknowledge", {})
+
+                    if all(self.players[player_name].acknowledged for player_name in self.get_live_players()):
                         await self.handle_next()
 
         except WebSocketDisconnect as e:
@@ -253,11 +258,11 @@ class HedgerGameData():
             return
 
         self.is_higher = not self.is_higher
-        self.num_played = 0
         self.game_state = "start"
 
         for player_name in self.get_live_players():
             self.players[player_name].played_card = None
+            self.players[player_name].acknowledged = False
 
         live_players = self.get_live_players()
 
@@ -301,7 +306,7 @@ class HedgerGameData():
         failed_players = []
         for player_name in self.players:
             if self.players[player_name].played_card.card_id == most_popular_card:
-                self.players[player_name].points -= 5
+                self.players[player_name].points -= 3
                 failed_players.append(player_name)
 
         # add score if player played the highest card
@@ -335,7 +340,6 @@ class HedgerGameData():
         })
 
         self.round_id += 1
-        self.num_played = 0
         print("finished evaluating")
 
 class HedgerData():

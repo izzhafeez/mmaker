@@ -34,6 +34,7 @@ class LocationGameData():
     actual: Tuple[float, float]
     num_of_locations: int
     second_closest: str
+    distance: float
 
     # init
     def __init__(self):
@@ -46,6 +47,19 @@ class LocationGameData():
         self.actual = None
         self.num_of_locations = None
         self.second_closest = None
+        self.distance = None
+
+    def calculate_distance_in_km(x1: float, y1: float, x2: float, y2: float):
+        R = 6371
+        x1 = np.radians(x1)
+        y1 = np.radians(y1)
+        x2 = np.radians(x2)
+        y2 = np.radians(y2)
+        delta_x = x2 - x1
+        delta_y = y2 - y1
+        a = np.sin(delta_x/2) * np.sin(delta_x/2) + np.cos(x1) * np.cos(x2) * np.sin(delta_y/2) * np.sin(delta_y/2)
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
+        return R * c
 
     def randomise_location(self):
         self.location_id = np.random.randint(0, self.num_of_locations)
@@ -72,6 +86,8 @@ class LocationGameData():
 
                 if method == "join":
                     player_name = data["name"]
+                    num_of_locations = data["num_of_locations"]
+                    self.num_of_locations = num_of_locations
                     await self.handle_join(player_name, websocket)
 
                 elif method == "leave":
@@ -146,9 +162,11 @@ class LocationGameData():
         print(f"reconnecting player {player_name}")
         await websocket.send_json({
             "method": self.game_state,
-            "round_id": self.round_id,
-            "location": self.location_id,
             "players": self.get_player_data(),
+            "location": self.location_id,
+            "second_closest": self.second_closest,
+            "distance": self.distance,
+            "round_id": self.round_id,
         })
 
     async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
@@ -180,6 +198,8 @@ class LocationGameData():
                 "players": self.get_player_data(),
                 "location": self.location_id,
                 "second_closest": self.second_closest,
+                "distance": self.distance,
+                "round_id": self.round_id,
                 **data
             })
         except Exception as e:
@@ -260,6 +280,7 @@ class LocationGameData():
 
         self.actual = None
         self.second_closest = None
+        self.distance = None
         live_players = self.get_live_players()
 
         if len(live_players) < 2:
@@ -286,7 +307,7 @@ class LocationGameData():
         # rank the players in terms of distance from actual, and keep the distances in player.distance
         for player_name in self.get_live_players():
             player = self.players[player_name]
-            player.distance = np.linalg.norm(np.array(player.guess) - np.array(self.actual))
+            player.distance = LocationGameData.calculate_distance_in_km(player.guess[0], player.guess[1], self.actual[0], self.actual[1])
 
         sorted_players = sorted(self.get_live_players(), key=lambda x: self.players[x].distance)
 
@@ -294,6 +315,7 @@ class LocationGameData():
         second_closest = sorted_players[1]
         self.players[second_closest].points += 1
         self.second_closest = second_closest
+        self.distance = self.players[second_closest].distance
 
         await self.notify_all_players("evaluate", {
             "players": self.get_player_data(),

@@ -278,6 +278,12 @@ class MidpointGameData():
             self.game_state = "lobby"
             return
         
+        # for each cell in played_grid, if it's non-empty, then add a two letter "AA" into the cell
+        for i in range(10):
+            for j in range(10):
+                if len(self.played_grid[i][j]) > 0:
+                    self.played_grid[i][j] = ["AA"]
+        
         # let all the calculations happen before notifying
         await self.notify_all_players("next", {
             "round_id": self.round_id,
@@ -298,11 +304,10 @@ class MidpointGameData():
         coordinates = [self.players[player_name].played_coordinate for player_name in self.get_live_players()]
 
         # played_grid is a 10x10 grid which captures who played each cell
-        played_grid = [[[] for _ in range(10)] for _ in range(10)]
         for player_name in self.get_live_players():
             played_coordinate = self.players[player_name].played_coordinate
             player_letter = self.players[player_name].letter
-            played_grid[played_coordinate[0]][played_coordinate[1]].append(player_letter)
+            self.played_grid[played_coordinate[0]][played_coordinate[1]].append(player_letter)
 
         x = np.array([coordinate[0] for coordinate in coordinates])
         y = np.array([coordinate[1] for coordinate in coordinates])
@@ -318,11 +323,10 @@ class MidpointGameData():
             player.points += player.added_score
 
             # check if two players chose the same cell
-            if len(played_grid[player.played_coordinate[0]][player.played_coordinate[1]]) > 1:
+            if len(self.played_grid[player.played_coordinate[0]][player.played_coordinate[1]]) > 1:
                 failed_players.append(player_name)
                 player.points -= 50
 
-        self.played_grid = played_grid
         self.failed_players = failed_players
 
         await self.notify_all_players("evaluate", {})

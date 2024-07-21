@@ -17,6 +17,7 @@ from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
 from color_guessr import ColorData, ColorGameData
 from midpoint_master import MidpointData, MidpointGameData
+from location_guessr import LocationData, LocationGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
@@ -465,7 +466,7 @@ async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-color_data = ColorData()
+midpoint_data = MidpointData()
 
 @app.websocket("/api/games/midpoint-master/{game_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
@@ -477,11 +478,11 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
             "method": "CONNECT_ERROR"
         })
 
-    game_data: ColorGameData = midpoint_data.get_game_data(game_id)
+    game_data: MidpointGameData = midpoint_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-midpoint_data = MidpointData()
+color_data = ColorData()
 
 @app.websocket("/api/games/color-guessr/{game_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
@@ -493,7 +494,23 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
             "method": "CONNECT_ERROR"
         })
 
-    game_data: MidpointGameData = color_data.get_game_data(game_id)
+    game_data: ColorGameData = color_data.get_game_data(game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+location_data = LocationData()
+
+@app.websocket("/api/games/location-guessr/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not location_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: LocationGameData = location_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 

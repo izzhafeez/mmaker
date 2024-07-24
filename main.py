@@ -21,6 +21,7 @@ from location_guessr import LocationData, LocationGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
+from quip_ai import QuipData, QuipGameData
 
 from openai import OpenAI
 
@@ -675,3 +676,24 @@ async def get_tod_questions_at_id(game_id: str):
         "truths": tod_data.games[game_id]["truths"],
         "dares": tod_data.games[game_id]["dares"]
     }
+
+quip_data = QuipData()
+
+class QuipAIRequest(BaseModel):
+    purpose: str
+    information: str
+
+@app.websocket("/api/games/quip-ai/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annotated[Settings, Depends(get_settings)]):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if game_id not in quip_data.games:
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+        quip_data.games[game_id] = QuipGameData(settings.openai_api_key)
+
+    game_data: QuipGameData = quip_data.games[game_id]
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)

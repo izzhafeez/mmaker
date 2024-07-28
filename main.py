@@ -16,6 +16,7 @@ from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
 from color_guessr import ColorData, ColorGameData
+from stat_guessr import StatData, StatGameData
 from frequency_guessr import FrequencyData, FrequencyGameData
 from midpoint_master import MidpointData, MidpointGameData
 from location_guessr import LocationData, LocationGameData
@@ -497,6 +498,22 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
         })
 
     game_data: ColorGameData = color_data.get_game_data(game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+stat_guessr_data = StatData()
+
+@app.websocket("/api/games/stat-guessr/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not stat_guessr_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: StatGameData = stat_guessr_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 

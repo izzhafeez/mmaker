@@ -4,6 +4,8 @@ from typing import List, Dict, Any, Tuple
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
+CARDS_PER_PERSON = 20
+
 class PlayerData():
     websocket: WebSocket
     deck: List[int]
@@ -89,8 +91,10 @@ class GameData():
 
                 elif method == "start":
                     deck_size = data["deck_size"]
+                    number_of_players = len(self.players)
+                    adjusted_deck_size = min(deck_size, number_of_players * CARDS_PER_PERSON)
                     hand_size = data["hand_size"]
-                    await self.handle_start(deck_size, hand_size)
+                    await self.handle_start(adjusted_deck_size, hand_size)
 
                 elif method == "play":
                     hand = data["hand"]

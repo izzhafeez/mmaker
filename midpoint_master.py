@@ -241,6 +241,9 @@ class MidpointGameData():
         for player_name in self.players:
             self.players[player_name].points = 0
 
+        # reset all grids
+        self.played_grid = [[[] for _ in range(10)] for _ in range(10)]
+
         # wait a while before handle next
         await asyncio.sleep(1)
         await self.handle_next()

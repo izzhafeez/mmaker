@@ -20,6 +20,7 @@ from stat_guessr import StatData, StatGameData
 from frequency_guessr import FrequencyData, FrequencyGameData
 from midpoint_master import MidpointData, MidpointGameData
 from location_guessr import LocationData, LocationGameData
+from number_nightmare import NumberData, NumberGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
@@ -530,6 +531,22 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
         })
 
     game_data: FrequencyGameData = frequency_data.get_game_data(game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+number_data = NumberData()
+
+@app.websocket("/api/games/number-nightmare/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not number_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: NumberGameData = number_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 

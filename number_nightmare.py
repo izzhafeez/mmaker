@@ -4,40 +4,32 @@ from typing import List, Dict, Any, Tuple
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
-class PlayedCard():
-    card_id: int
-    data: List[float]
-
-    # init
-    def __init__(self, card_id: int, data: List[float]):
-        self.card_id = card_id
-        self.data = data
-
-class HedgerPlayerData():
+class NumberPlayerData():
     websocket: WebSocket
-    played_card: PlayedCard
+    played_number: int
+    satisfy_count: int
     points: int
     acknowledged: bool
 
     # init
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
-        self.played_card = None
+        self.played_number = None
+        self.satisfy_count = 0
         self.points = 0
         self.acknowledged = False
 
-OPTIONS_SIZE = 10
+OPTIONS_SIZE = 5
 ROUNDS = 10
 
-class HedgerGameData():
-    players: Dict[str, HedgerPlayerData]
-    spectators: Dict[str, HedgerPlayerData]
+class NumberGameData():
+    players: Dict[str, NumberPlayerData]
+    spectators: Dict[str, NumberPlayerData]
     is_active: bool
     deck_size: int
     round_id: int
     game_state: str
     options: List[int]
-    is_higher: bool
 
     # init
     def __init__(self):
@@ -48,7 +40,6 @@ class HedgerGameData():
         self.game_state = "lobby"
         self.options = []
         self.deck_size = 0
-        self.is_higher = True
 
     def create_options(self):
         # random options
@@ -58,7 +49,8 @@ class HedgerGameData():
         return {
             player_name: {
                 "points": self.players[player_name].points,
-                "played_card": self.players[player_name].played_card.card_id if self.players[player_name].played_card is not None else None
+                "played_number": self.players[player_name].played_number if self.players[player_name].played_number is not None else None,
+                "satisfy_count": self.players[player_name].satisfy_count,
             } for player_name in self.players
         }
     
@@ -85,15 +77,15 @@ class HedgerGameData():
                     await self.handle_start(deck_size)
 
                 elif method == "play":
-                    card_id = data["card_id"]
-                    data_points = data["data"]
-                    played_card = PlayedCard(card_id, data_points)
                     player_name = data["name"]
-                    print(f"{player_name} played {played_card.card_id} with data {played_card.data}")
-                    self.players[player_name].played_card = played_card
+                    played_number = data["played_number"]
+                    satisfy_count = data["satisfy_count"]
+                    print(f"{player_name} played {played_number}, earning {satisfy_count} points")
+                    self.players[player_name].played_number = played_number
+                    self.players[player_name].satisfy_count = satisfy_count
                     await self.notify_all_players("play", {})
 
-                    if all(self.players[player_name].played_card is not None for player_name in self.get_live_players()):
+                    if all(self.players[player_name].played_number is not None for player_name in self.get_live_players()):
                         await self.handle_evaluate()
 
                 elif method == "acknowledge":
@@ -134,7 +126,7 @@ class HedgerGameData():
             await self.handle_cannot_join(player_name, websocket)
             return
 
-        self.players[player_name] = HedgerPlayerData(websocket)
+        self.players[player_name] = NumberPlayerData(websocket)
         await self.notify_all_players("join", {
             "name": player_name
         })
@@ -153,12 +145,11 @@ class HedgerGameData():
             "round_id": self.round_id,
             "options": self.options,
             "players": self.get_player_data(),
-            "is_higher": self.is_higher
         })
 
     async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
         print(f"game already started, cannot join")
-        self.spectators[player_name] = HedgerPlayerData(websocket)
+        self.spectators[player_name] = NumberPlayerData(websocket)
         await websocket.send_json({
             "method": "spectate",
             "message": "Game already started, but you can watch!",
@@ -182,8 +173,8 @@ class HedgerGameData():
             await websocket.send_json({
                 "method": method,
                 "players": self.get_player_data(),
-                "is_higher": self.is_higher,
                 "options": self.options,
+                "round_id": self.round_id,
                 **data
             })
         except Exception as e:
@@ -256,11 +247,11 @@ class HedgerGameData():
             self.game_state = "lobby"
             return
 
-        self.is_higher = not self.is_higher
         self.game_state = "start"
 
         for player_name in self.get_live_players():
-            self.players[player_name].played_card = None
+            self.players[player_name].played_number = None
+            self.players[player_name].satisfy_count = 0
             self.players[player_name].acknowledged = False
 
         live_players = self.get_live_players()
@@ -280,7 +271,6 @@ class HedgerGameData():
         self.create_options()
         await self.notify_all_players("next", {
             "options": self.options,
-            "is_higher": self.is_higher,
             "round_id": self.round_id,
         })
         print("finished next")
@@ -289,73 +279,39 @@ class HedgerGameData():
         print("evaluating")
         self.game_state = "evaluate"
         # subtract score if a player has played the most popular card
-        card_ids = [player.played_card.card_id for player in self.players.values()]
-        card_id_counts = {card_id: card_ids.count(card_id) for card_id in card_ids}
+        played_numbers = [player.played_number for player in self.players.values()]
 
-        most_popular_card = None
-        highest_count = max(card_id_counts.values())
-        number_of_cards_with_highest_count = len([card_id for card_id in card_id_counts if card_id_counts[card_id] == highest_count])
-
-        # if there is a single card that is most popular
-        if number_of_cards_with_highest_count == 1:
-            most_popular_card = max(card_id_counts, key=card_id_counts.get)
-        
-
-        # if a player played the most popular card, subtract score
+        # if a player played a number that someone else played, they lose 3 points
         failed_players = []
         for player_name in self.players:
-            if self.players[player_name].played_card.card_id == most_popular_card:
+            if played_numbers.count(self.players[player_name].played_number) > 1:
                 self.players[player_name].points -= 3
                 failed_players.append(player_name)
-
-        # add score if player played the highest card
-        num_of_data_fields = len(self.players[list(self.players.keys())[0]].played_card.data)
         
-        # for each field, add score to the player with the highest value
-        winners = []
-        for i in range(num_of_data_fields):
-            field_winners = {
-                "best_value": None,
-                "winners": []
-            }
-            value_list = [player.played_card.data[i] for player in self.players.values()]
-            if self.is_higher:
-                best_value = max(value_list, default=float('-inf'))
-                field_winners["best_value"] = best_value
-            else:  
-                best_value = min(value_list, default=float('inf'))
-                field_winners["best_value"] = best_value
-            for player_name in self.players:
-                if self.players[player_name].played_card.data[i] == best_value:
-                    self.players[player_name].points += 1
-                    field_winners["winners"].append(player_name)
-            winners.append(field_winners)
+        # add points based on satisfy count
+        for player_name in self.players:
+            self.players[player_name].points += self.players[player_name].satisfy_count
 
         await self.notify_all_players("evaluate", {
             "players": self.get_player_data(),
-            "winners": winners,
             "failed_players": failed_players,
-            "most_popular_card": most_popular_card if most_popular_card is not None else -1,
         })
 
         self.round_id += 1
         print("finished evaluating")
 
-class HedgerData():
-    games_data: Dict[str, Dict[str, HedgerGameData]]
+class NumberData():
+    games_data: Dict[str, NumberGameData]
 
     # init
     def __init__(self):
         self.games_data = {}
 
-    def game_data_exists(self, game_type: str, game_id: str):
-        return game_type in self.games_data and game_id in self.games_data[game_type]
+    def game_data_exists(self, game_id: str):
+        return game_id in self.games_data
 
-    def get_game_data(self, game_type: str, game_id: str):
-        if game_type not in self.games_data:
-            self.games_data[game_type] = {}
+    def get_game_data(self, game_id: str):
+        if game_id not in self.games_data:
+            self.games_data[game_id] = NumberGameData()
         
-        if game_id not in self.games_data[game_type]:
-            self.games_data[game_type][game_id] = HedgerGameData()
-        
-        return self.games_data[game_type][game_id]
+        return self.games_data[game_id]

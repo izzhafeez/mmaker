@@ -15,6 +15,7 @@ import numpy as np
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
+from blurry_battle import BlurryData, BlurryGameData
 from color_guessr import ColorData, ColorGameData
 from stat_guessr import StatData, StatGameData
 from frequency_guessr import FrequencyData, FrequencyGameData
@@ -428,7 +429,21 @@ async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str)
     game_data: GameData = games_data.get_game_data(game_type, game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
-    
+
+games_data = BlurryData()
+
+@app.websocket("/api/games/blurry-battle/{game_type}/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str):
+    await websocket.accept()
+
+    if not games_data.game_data_exists(game_type, game_id):
+        await websocket.send_json({
+            "method": "connect_error"
+        })
+
+    game_data: BlurryGameData = games_data.get_game_data(game_type, game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
     
 def convert_result_to_record(result):
     return (

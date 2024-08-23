@@ -4,43 +4,32 @@ from typing import List, Dict, Any, Tuple
 from fastapi import WebSocket
 from fastapi.websockets import WebSocketDisconnect
 
-class PlayedCard():
-    card_id: int
-    data: List[float]
-
-    # init
-    def __init__(self, card_id: int, data: List[float]):
-        self.card_id = card_id
-        self.data = data
-
-class HedgerPlayerData():
+class BlurryPlayerData():
     websocket: WebSocket
-    played_card: PlayedCard
+    guess: str
+    added_score: int
     points: int
     acknowledged: bool
 
     # init
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
-        self.played_card = None
+        self.guess = None
         self.points = 0
+        self.added_score = 0
         self.acknowledged = False
 
-OPTIONS_SIZE = 10
 ROUNDS = 10
 
-class HedgerGameData():
-    players: Dict[str, HedgerPlayerData]
-    spectators: Dict[str, HedgerPlayerData]
+class BlurryGameData():
+    players: Dict[str, BlurryPlayerData]
+    spectators: Dict[str, BlurryPlayerData]
     is_active: bool
-    deck_size: int
     round_id: int
     game_state: str
-    options: List[int]
-    is_higher: bool
-    winners: List[Dict[str, Any]]
-    failed_players: List[str]
-    most_popular_card: int
+    answer_id: int
+    answer: str
+    deck_size: int
 
     # init
     def __init__(self):
@@ -49,24 +38,30 @@ class HedgerGameData():
         self.is_active = False
         self.round_id = 1
         self.game_state = "lobby"
-        self.options = []
+        self.answer_id = 0
+        self.answer = None
         self.deck_size = 0
-        self.is_higher = True
-        self.winners = []
-        self.failed_players = []
-        self.most_popular_card = -1
-
-    def create_options(self):
-        # random options
-        self.options = np.random.permutation(self.deck_size).tolist()[:OPTIONS_SIZE]
 
     def get_player_data(self):
         return {
             player_name: {
                 "points": self.players[player_name].points,
-                "played_card": self.players[player_name].played_card.card_id if self.players[player_name].played_card is not None else None
+                "guess": self.players[player_name].guess if self.players[player_name].guess is not None else None,
+                "added_score": self.players[player_name].added_score if self.players[player_name].added_score is not None else None,
+                "acknowledged": self.players[player_name].acknowledged
             } for player_name in self.players
         }
+    
+    def select_random_answer_id(self):
+        self.answer_id = np.random.randint(0, self.deck_size)
+
+    def get_closeness_of_answer(answer: str, guess: str):
+        # if exact match, return 1
+        if answer == guess:
+            return 2
+        # if not, return 1 - hamming distance
+        score = 1 - sum([1 for i in range(min(len(answer), len(guess))) if answer[i] != guess[i]]) / len(answer)
+        return round(score, 2)
     
     def get_live_players(self):
         return [player_name for player_name in self.players]
@@ -87,26 +82,26 @@ class HedgerGameData():
                     await self.handle_leave(player_name)
 
                 elif method == "start":
-                    deck_size = data["deck_size"]
-                    await self.handle_start(deck_size)
+                    await self.handle_start(data["deck_size"])
 
                 elif method == "play":
-                    card_id = data["card_id"]
-                    data_points = data["data"]
-                    played_card = PlayedCard(card_id, data_points)
+                    guess = data["guess"]
                     player_name = data["name"]
-                    print(f"{player_name} played {played_card.card_id} with data {played_card.data}")
-                    self.players[player_name].played_card = played_card
+                    self.answer = data["answer"]
+                    print(f"{player_name} played {guess}")
+
+                    self.players[player_name].guess = guess
+
                     await self.notify_all_players("play", {})
 
-                    if all(self.players[player_name].played_card is not None for player_name in self.get_live_players()):
+                    if all(self.players[player_name].guess is not None for player_name in self.get_live_players()):
                         await self.handle_evaluate()
 
                 elif method == "acknowledge":
                     print("acknowledged")
-
                     player_name = data["name"]
                     self.players[player_name].acknowledged = True
+
                     await self.notify_all_players("acknowledge", {})
 
                     if all(self.players[player_name].acknowledged for player_name in self.get_live_players()):
@@ -140,7 +135,7 @@ class HedgerGameData():
             await self.handle_cannot_join(player_name, websocket)
             return
 
-        self.players[player_name] = HedgerPlayerData(websocket)
+        self.players[player_name] = BlurryPlayerData(websocket)
         await self.notify_all_players("join", {
             "name": player_name
         })
@@ -154,20 +149,17 @@ class HedgerGameData():
         })
 
     async def handle_reconnect_start(self, player_name: str, websocket: WebSocket):
+        print(f"reconnecting player {player_name}")
         await websocket.send_json({
             "method": self.game_state,
             "round_id": self.round_id,
-            "options": self.options,
+            "answer_id": self.answer_id,
             "players": self.get_player_data(),
-            "is_higher": self.is_higher,
-            "winners": self.winners,
-            "failed_players": self.failed_players,
-            "most_popular_card": self.most_popular_card if self.most_popular_card is not None else -1,
         })
 
     async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
         print(f"game already started, cannot join")
-        self.spectators[player_name] = HedgerPlayerData(websocket)
+        self.spectators[player_name] = BlurryPlayerData(websocket)
         await websocket.send_json({
             "method": "spectate",
             "message": "Game already started, but you can watch!",
@@ -175,6 +167,7 @@ class HedgerGameData():
         })
 
     async def notify_all_players(self, method: str, data: Dict[str, Any]):
+        print(f"notifying all players with {method}")
         for player_name in self.players:
             if self.players[player_name].websocket is not None:
                 await self.notify_player(player_name, method, data)
@@ -191,8 +184,7 @@ class HedgerGameData():
             await websocket.send_json({
                 "method": method,
                 "players": self.get_player_data(),
-                "is_higher": self.is_higher,
-                "options": self.options,
+                "answer_id": self.answer_id,
                 **data
             })
         except Exception as e:
@@ -224,26 +216,13 @@ class HedgerGameData():
             "name": player_name,
         })
 
-        live_players = self.get_live_players()
-
-        if self.is_active and len(live_players) < 2:
-            if len(live_players) == 1:
-                await self.notify_all_players("end", {
-                    "winner": live_players[0]
-                })
-            else:
-                await self.notify_all_players("end", {
-                    "winner": "No one"
-                })
-            self.is_active = False
-
         if len(self.players) == 0:
             self.__init__()
 
     async def handle_start(self, deck_size: int):
         self.is_active = True
-        self.deck_size = deck_size
         self.round_id = 1
+        self.deck_size = deck_size
         # reset all player points
         for player_name in self.players:
             self.players[player_name].points = 0
@@ -265,31 +244,17 @@ class HedgerGameData():
             self.game_state = "lobby"
             return
 
-        self.is_higher = not self.is_higher
         self.game_state = "start"
 
         for player_name in self.get_live_players():
-            self.players[player_name].played_card = None
+            self.players[player_name].guess = None
+            self.players[player_name].added_score = None
             self.players[player_name].acknowledged = False
-
-        live_players = self.get_live_players()
-
-        if len(live_players) < 2:
-            winner = "No one"
-            if len(live_players) == 1:
-                winner = live_players[0]
-            await self.notify_all_players("end", {
-                "winner": winner
-            })
-            self.is_active = False
-            self.game_state = "lobby"
-            return
         
         # let all the calculations happen before notifying
-        self.create_options()
+        self.select_random_answer_id()
         await self.notify_all_players("next", {
-            "options": self.options,
-            "is_higher": self.is_higher,
+            "answer_id": self.answer_id,
             "round_id": self.round_id,
         })
         print("finished next")
@@ -297,65 +262,25 @@ class HedgerGameData():
     async def handle_evaluate(self):
         print("evaluating")
         self.game_state = "evaluate"
-        # subtract score if a player has played the most popular card
-        card_ids = [player.played_card.card_id for player in self.players.values()]
-        card_id_counts = {card_id: card_ids.count(card_id) for card_id in card_ids}
-
-        most_popular_card = None
-        highest_count = max(card_id_counts.values())
-        number_of_cards_with_highest_count = len([card_id for card_id in card_id_counts if card_id_counts[card_id] == highest_count])
-
-        # if there is a single card that is most popular
-        if number_of_cards_with_highest_count == 1:
-            most_popular_card = max(card_id_counts, key=card_id_counts.get)
-        
-
-        # if a player played the most popular card, subtract score
-        failed_players = []
-        for player_name in self.players:
-            if self.players[player_name].played_card.card_id == most_popular_card:
-                self.players[player_name].points -= 3
-                failed_players.append(player_name)
-
-        # add score if player played the highest card
-        num_of_data_fields = len(self.players[list(self.players.keys())[0]].played_card.data)
-        
-        # for each field, add score to the player with the highest value
-        winners = []
-        for i in range(num_of_data_fields):
-            field_winners = {
-                "best_value": None,
-                "winners": []
-            }
-            value_list = [player.played_card.data[i] for player in self.players.values()]
-            if self.is_higher:
-                best_value = max(value_list, default=float('-inf'))
-                field_winners["best_value"] = best_value
-            else:  
-                best_value = min(value_list, default=float('inf'))
-                field_winners["best_value"] = best_value
-            for player_name in self.players:
-                if self.players[player_name].played_card.data[i] == best_value:
-                    self.players[player_name].points += 1
-                    field_winners["winners"].append(player_name)
-            winners.append(field_winners)
-        
-        self.winners = winners
-        self.failed_players = failed_players
-        self.most_popular_card = most_popular_card
+        # evaluate the points of each player
+        for player_name in self.get_live_players():
+            guess = self.players[player_name].guess
+            if guess is None:
+                continue
+            score = BlurryGameData.get_closeness_of_answer(self.answer, guess)
+            self.players[player_name].points += score
+            self.players[player_name].added_score = score
 
         await self.notify_all_players("evaluate", {
             "players": self.get_player_data(),
-            "winners": self.winners,
-            "failed_players": self.failed_players,
-            "most_popular_card": self.most_popular_card if self.most_popular_card is not None else -1,
+            "answer_id": self.answer_id,
         })
 
         self.round_id += 1
         print("finished evaluating")
 
-class HedgerData():
-    games_data: Dict[str, Dict[str, HedgerGameData]]
+class BlurryData():
+    games_data: Dict[str, Dict[str, BlurryGameData]]
 
     # init
     def __init__(self):
@@ -369,6 +294,6 @@ class HedgerData():
             self.games_data[game_type] = {}
         
         if game_id not in self.games_data[game_type]:
-            self.games_data[game_type][game_id] = HedgerGameData()
+            self.games_data[game_type][game_id] = BlurryGameData()
         
         return self.games_data[game_type][game_id]

@@ -54,6 +54,7 @@ class MathGameData():
     state: MathGameState
     number: List[int]
     last_played: int
+    history: List[Dict[str, Any]]
 
     # init
     def __init__(self):
@@ -65,6 +66,7 @@ class MathGameData():
         self.state = MathGameState.LOBBY
         self.number = STARTING_NUMBER
         self.last_played = None
+        self.history = []
     
     def next_player(self):
         self.players[self.player].state = MathPlayerState.WAITING
@@ -113,6 +115,11 @@ class MathGameData():
 
                     self.players[player_name].hand.remove(card_id)
                     self.players[player_name].hand.append(self.deck.draw())
+                    self.history.append({
+                        "player": player_name,
+                        "card_id": card_id,
+                        "number": self.number,
+                    })
 
                     self.next_player()
                     await self.notify_all_players("PLAY", {
@@ -212,6 +219,7 @@ class MathGameData():
                 "number": self.number,
                 "hand": self.players[player_name].hand,
                 "last_played": self.last_played,
+                "history": self.history,
                 **data
             })
         except Exception as e:
@@ -284,6 +292,7 @@ class MathGameData():
         self.live_players = list(self.players.keys())
         self.player = self.live_players.pop(0)
         self.players[self.player].state = MathPlayerState.TURN
+        self.history = []
 
         # let all the calculations happen before notifying
         for player_name in self.players:

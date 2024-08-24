@@ -59,8 +59,12 @@ class BlurryGameData():
         # if exact match, return 1
         if answer == guess:
             return 2
-        # if not, return 1 - hamming distance
-        score = 1 - sum([1 for i in range(min(len(answer), len(guess))) if answer[i] != guess[i]]) / len(answer)
+        # if not, assign score based on jacard similarity
+        answer_letter_set = set(answer)
+        guess_letter_set = set(guess)
+        intersection = answer_letter_set.intersection(guess_letter_set)
+        union = answer_letter_set.union(guess_letter_set)
+        score = len(intersection) / len(union)
         return round(score, 2)
     
     def get_live_players(self):

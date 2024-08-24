@@ -227,19 +227,6 @@ class StatGameData():
             "name": player_name,
         })
 
-        live_players = self.get_live_players()
-
-        if self.is_active and len(live_players) < 2:
-            if len(live_players) == 1:
-                await self.notify_all_players("end", {
-                    "winner": live_players[0]
-                })
-            else:
-                await self.notify_all_players("end", {
-                    "winner": "No one"
-                })
-            self.is_active = False
-
         if len(self.players) == 0:
             self.__init__()
 
@@ -273,19 +260,6 @@ class StatGameData():
             self.players[player_name].guess = None
             self.players[player_name].added_score = None
             self.players[player_name].acknowledged = False
-
-        live_players = self.get_live_players()
-
-        if len(live_players) < 2:
-            winner = "No one"
-            if len(live_players) == 1:
-                winner = live_players[0]
-            await self.notify_all_players("end", {
-                "winner": winner
-            })
-            self.is_active = False
-            self.game_state = "lobby"
-            return
         
         # let all the calculations happen before notifying
         self.select_random_item_and_field()

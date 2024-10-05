@@ -325,7 +325,7 @@ class CityGameData():
         max_count = max(city_counts.values())
         most_popular_cities = [city for city in city_counts if city_counts[city] == max_count]
         failed_players = set()
-        if len(most_popular_cities) == 1:
+        if len(most_popular_cities) == 1 and len(self.get_live_players()) > 1:
             # players lose 50 points if they guess the most popular city
             for player_name in self.get_live_players():
                 player = self.players[player_name]
@@ -339,7 +339,7 @@ class CityGameData():
         await self.notify_all_players("evaluate", {
             "players": self.get_player_data(),
             "gained": gained,
-            "most_popular_city": most_popular_cities[0] if len(most_popular_cities) == 1 else -1,
+            "most_popular_city": most_popular_cities[0] if len(most_popular_cities) == 1 and len(self.get_live_players()) > 1 else -1,
             "failed": list(failed_players)
         })
 

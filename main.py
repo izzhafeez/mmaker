@@ -21,6 +21,7 @@ from stat_guessr import StatData, StatGameData
 from frequency_guessr import FrequencyData, FrequencyGameData
 from midpoint_master import MidpointData, MidpointGameData
 from location_guessr import LocationData, LocationGameData
+from city_hedger import CityData, CityGameData
 from number_nightmare import NumberData, NumberGameData
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
@@ -578,6 +579,22 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
         })
 
     game_data: LocationGameData = location_data.get_game_data(game_id)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+city_data = CityData()
+
+@app.websocket("/api/games/city-hedger/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    if not city_data.game_data_exists(game_id):
+        await websocket.send_json({
+            "method": "CONNECT_ERROR"
+        })
+
+    game_data: CityGameData = city_data.get_game_data(game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 

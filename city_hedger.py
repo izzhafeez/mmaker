@@ -7,10 +7,11 @@ from fastapi.websockets import WebSocketDisconnect
 # in this game, players have to guess where a given location is
 # the player who is closest to it gains a point
 
-class LocationPlayerData():
+class CityPlayerData():
     websocket: WebSocket
     guess: Tuple[float, float]
-    points: int
+    points: float
+    city: str
     distance: float
     acknowledged: bool
 
@@ -19,22 +20,26 @@ class LocationPlayerData():
         self.websocket = websocket
         self.guess = None
         self.points = 0
+        self.city = None
         self.distance = None
         self.acknowledged = False
 
 ROUNDS = 10
 
-class LocationGameData():
-    players: Dict[str, LocationPlayerData]
-    spectators: Dict[str, LocationPlayerData]
+class CityGameData():
+    players: Dict[str, CityPlayerData]
+    spectators: Dict[str, CityPlayerData]
     is_active: bool
     round_id: int
     game_state: str
-    location_id: int
-    actual: Tuple[float, float]
-    num_of_locations: int
-    closest: str
-    distance: float
+    closest_city: str
+    closest_lat_lng: List[float]
+    max_lat: float
+    min_lat: float
+    max_lng: float
+    min_lng: float
+    lat: float
+    lng: float
 
     # init
     def __init__(self):
@@ -43,11 +48,14 @@ class LocationGameData():
         self.is_active = False
         self.round_id = 1
         self.game_state = "lobby"
-        self.location_id = None
-        self.actual = None
-        self.num_of_locations = None
-        self.closest = None
-        self.distance = None
+        self.closest_city = ""
+        self.closest_lat_lng = [0, 0]
+        self.max_lat = 90
+        self.min_lat = -90
+        self.max_lng = 180
+        self.min_lng = -180
+        self.lat = 0
+        self.lng = 0
 
     def calculate_distance_in_km(x1: float, y1: float, x2: float, y2: float):
         R = 6371
@@ -61,8 +69,9 @@ class LocationGameData():
         c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
         return R * c
 
-    def randomise_location(self):
-        self.location_id = np.random.randint(0, self.num_of_locations)
+    def randomise_lat_lng(self):
+        self.lat = np.random.uniform(self.min_lat, self.max_lat)
+        self.lng = np.random.uniform(self.min_lng, self.max_lng)
 
     def get_player_data(self):
         return {
@@ -70,6 +79,7 @@ class LocationGameData():
                 "points": self.players[player_name].points,
                 "guess": self.players[player_name].guess if self.players[player_name].guess is not None else None,
                 "acknowledged": self.players[player_name].acknowledged,
+                "city": self.players[player_name].city if self.players[player_name].city is not None else None,
                 "distance": self.players[player_name].distance if self.players[player_name].distance is not None else None
             } for player_name in self.players
         }
@@ -86,8 +96,14 @@ class LocationGameData():
 
                 if method == "join":
                     player_name = data["name"]
-                    num_of_locations = data["num_of_locations"]
-                    self.num_of_locations = num_of_locations
+                    max_lat = data["max_lat"]
+                    min_lat = data["min_lat"]
+                    max_lng = data["max_lng"]
+                    min_lng = data["min_lng"]
+                    self.max_lat = max_lat
+                    self.min_lat = min_lat
+                    self.max_lng = max_lng
+                    self.min_lng = min_lng
                     await self.handle_join(player_name, websocket)
 
                 elif method == "leave":
@@ -99,10 +115,14 @@ class LocationGameData():
 
                 elif method == "play":
                     guess = data["guess"]
+                    city = data["city"]
                     player_name = data["name"]
-                    self.actual = data["actual"]
-                    print(f"{player_name} played {guess}")
+                    print(f"{player_name} played {city}")
+
+                    self.closest_city = data["closest_city"]
+                    self.closest_lat_lng = data["closest_lat_lng"]
                     self.players[player_name].guess = guess
+                    self.players[player_name].city = city
                     await self.notify_all_players("play", {})
                     if all(self.players[player_name].guess is not None for player_name in self.get_live_players()):
                         await self.handle_evaluate()
@@ -145,7 +165,7 @@ class LocationGameData():
             await self.handle_cannot_join(player_name, websocket)
             return
 
-        self.players[player_name] = LocationPlayerData(websocket)
+        self.players[player_name] = CityPlayerData(websocket)
         await self.notify_all_players("join", {
             "name": player_name
         })
@@ -163,15 +183,14 @@ class LocationGameData():
         await websocket.send_json({
             "method": self.game_state,
             "players": self.get_player_data(),
-            "location": self.location_id,
-            "closest": self.closest,
-            "distance": self.distance,
+            "lat": self.lat,
+            "lng": self.lng,
             "round_id": self.round_id,
         })
 
     async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
         print(f"game already started, cannot join")
-        self.spectators[player_name] = LocationPlayerData(websocket)
+        self.spectators[player_name] = CityPlayerData(websocket)
         await websocket.send_json({
             "method": "spectate",
             "message": "Game already started, but you can watch!",
@@ -196,10 +215,11 @@ class LocationGameData():
             await websocket.send_json({
                 "method": method,
                 "players": self.get_player_data(),
-                "location": self.location_id,
-                "closest": self.closest,
-                "distance": self.distance,
+                "lat": self.lat,
+                "lng": self.lng,
                 "round_id": self.round_id,
+                "closest_city": self.closest_city,
+                "closest_lat_lng": self.closest_lat_lng,
                 **data
             })
         except Exception as e:
@@ -230,19 +250,6 @@ class LocationGameData():
         await self.notify_all_players("leave", {
             "name": player_name,
         })
-
-        live_players = self.get_live_players()
-
-        if self.is_active and len(live_players) < 2:
-            if len(live_players) == 1:
-                await self.notify_all_players("end", {
-                    "winner": live_players[0]
-                })
-            else:
-                await self.notify_all_players("end", {
-                    "winner": "No one"
-                })
-            self.is_active = False
 
         if len(self.players) == 0:
             self.__init__()
@@ -278,24 +285,11 @@ class LocationGameData():
             self.players[player_name].acknowledged = False
             self.players[player_name].distance = None
 
-        self.actual = None
-        self.closest = None
-        self.distance = None
-        live_players = self.get_live_players()
-
-        if len(live_players) < 2:
-            winner = "No one"
-            if len(live_players) == 1:
-                winner = live_players[0]
-            await self.notify_all_players("end", {
-                "winner": winner
-            })
-            self.is_active = False
-            self.game_state = "lobby"
-            return
+        self.lat = None
+        self.lng = None
         
         # let all the calculations happen before notifying
-        self.randomise_location()
+        self.randomise_lat_lng()
         await self.notify_all_players("next", {
             "round_id": self.round_id,
         })
@@ -304,39 +298,67 @@ class LocationGameData():
     async def handle_evaluate(self):
         print("evaluating")
         self.game_state = "evaluate"
-        # rank the players in terms of distance from actual, and keep the distances in player.distance
+
+        max_distance = CityGameData.calculate_distance_in_km(self.min_lat, self.min_lng, self.max_lat, self.max_lng)
+        gained = {}
+
+        # players get points based on their distance of their guess to the actual location
         for player_name in self.get_live_players():
             player = self.players[player_name]
-            player.distance = LocationGameData.calculate_distance_in_km(player.guess[0], player.guess[1], self.actual[0], self.actual[1])
+            player.distance = CityGameData.calculate_distance_in_km(player.guess[0], player.guess[1], self.lat, self.lng)
+            
+            # points should be max 100
+            gained[player_name] = {
+                "points": int(100 - ((player.distance / max_distance) * 100)),
+                "city": player.city,
+            }
+            player.points += gained[player_name]["points"]
 
-        sorted_players = sorted(self.get_live_players(), key=lambda x: self.players[x].distance)
+        # most popular city
+        city_counts = {}
+        for player_name in self.get_live_players():
+            player = self.players[player_name]
+            if player.city not in city_counts:
+                city_counts[player.city] = 0
+            city_counts[player.city] += 1
+        
+        max_count = max(city_counts.values())
+        most_popular_cities = [city for city in city_counts if city_counts[city] == max_count]
+        failed_players = set()
+        if len(most_popular_cities) == 1:
+            # players lose 50 points if they guess the most popular city
+            for player_name in self.get_live_players():
+                player = self.players[player_name]
+                if player.city == most_popular_cities[0]:
+                    failed_players.add(player_name)
 
-        # closest player gets a point
-        closest = sorted_players[0]
-        self.players[closest].points += 1
-        self.closest = closest
-        self.distance = self.players[closest].distance
+        for player_name in failed_players:
+            self.players[player_name].points -= 50
+            gained[player_name]["points"] -= 50
 
         await self.notify_all_players("evaluate", {
             "players": self.get_player_data(),
+            "gained": gained,
+            "most_popular_city": most_popular_cities[0] if len(most_popular_cities) == 1 else -1,
+            "failed": list(failed_players)
         })
 
         self.round_id += 1
         print("finished evaluating")
 
-class LocationData():
-    math_data: Dict[str, LocationGameData]
+class CityData():
+    city_data: Dict[str, CityGameData]
 
     # init
     def __init__(self):
-        self.math_data = {}
+        self.city_data = {}
 
     def game_data_exists(self, game_id: str):
-        return game_id in self.math_data
+        return game_id in self.city_data
 
     def get_game_data(self, game_id: str):
         
-        if game_id not in self.math_data:
-            self.math_data[game_id] = LocationGameData()
+        if game_id not in self.city_data:
+            self.city_data[game_id] = CityGameData()
         
-        return self.math_data[game_id]
+        return self.city_data[game_id]

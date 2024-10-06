@@ -289,7 +289,7 @@ class QuipGameData():
             self.spectators[player_name].websocket = None
             
         # if all players disconnected, reset game after a while
-        await asyncio.sleep(5 * 60 * 60)
+        await asyncio.sleep(60)
         if all([player.websocket is None for player in self.players.values()]):
             self.__init__()
             return

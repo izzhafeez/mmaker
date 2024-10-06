@@ -10,6 +10,7 @@ class BlurryPlayerData():
     added_score: int
     points: int
     acknowledged: bool
+    is_alive: bool
 
     # init
     def __init__(self, websocket: WebSocket):
@@ -18,12 +19,12 @@ class BlurryPlayerData():
         self.points = 0
         self.added_score = 0
         self.acknowledged = False
+        self.is_alive = False
 
 ROUNDS = 10
 
 class BlurryGameData():
     players: Dict[str, BlurryPlayerData]
-    spectators: Dict[str, BlurryPlayerData]
     is_active: bool
     round_id: int
     game_state: str
@@ -34,7 +35,6 @@ class BlurryGameData():
     # init
     def __init__(self):
         self.players = {}
-        self.spectators = {}
         self.is_active = False
         self.round_id = 1
         self.game_state = "lobby"
@@ -68,7 +68,7 @@ class BlurryGameData():
         return round(score, 2)
     
     def get_live_players(self):
-        return [player_name for player_name in self.players]
+        return [player_name for player_name in self.players if self.players[player_name].is_alive]
 
     async def handle_client(self, websocket: WebSocket):
         data = {}
@@ -128,16 +128,6 @@ class BlurryGameData():
         if player_name in self.players and not self.is_active:
             await self.handle_join_player_exists(player_name, websocket)
             return
-        
-        if player_name in self.players and self.is_active:
-            print(f"reconnecting player {player_name}")
-            self.players[player_name].websocket = websocket
-            await self.handle_reconnect_start(player_name, websocket)
-            return
-        
-        if player_name not in self.players and self.is_active:
-            await self.handle_cannot_join(player_name, websocket)
-            return
 
         self.players[player_name] = BlurryPlayerData(websocket)
         await self.notify_all_players("join", {
@@ -152,38 +142,15 @@ class BlurryGameData():
             "players": self.get_player_data()
         })
 
-    async def handle_reconnect_start(self, player_name: str, websocket: WebSocket):
-        print(f"reconnecting player {player_name}")
-        await websocket.send_json({
-            "method": self.game_state,
-            "round_id": self.round_id,
-            "answer_id": self.answer_id,
-            "players": self.get_player_data(),
-        })
-
-    async def handle_cannot_join(self, player_name: str, websocket: WebSocket):
-        print(f"game already started, cannot join")
-        self.spectators[player_name] = BlurryPlayerData(websocket)
-        await websocket.send_json({
-            "method": "spectate",
-            "message": "Game already started, but you can watch!",
-            "players": self.get_player_data()
-        })
-
     async def notify_all_players(self, method: str, data: Dict[str, Any]):
         print(f"notifying all players with {method}")
         for player_name in self.players:
             if self.players[player_name].websocket is not None:
                 await self.notify_player(player_name, method, data)
-        for player_name in self.spectators:
-            if self.spectators[player_name].websocket is not None:
-                await self.notify_player(player_name, method, data)
 
     async def notify_player(self, player_name: str, method: str, data: Dict[str, Any]):
         if player_name in self.players:
             websocket = self.players[player_name].websocket
-        elif player_name in self.spectators:
-            websocket = self.spectators[player_name].websocket
         try:
             await websocket.send_json({
                 "method": method,
@@ -198,14 +165,10 @@ class BlurryGameData():
     async def handle_disconnect(self, player_name: str):
         if player_name in self.players:
             self.players[player_name].websocket = None
-            if self.game_state == "lobby":
-                await self.handle_leave(player_name)
-            
-        if player_name in self.spectators:
-            self.spectators[player_name].websocket = None
+            await self.handle_leave(player_name)
             
         # if all players disconnected, reset game after a while
-        await asyncio.sleep(5 * 60 * 60)
+        await asyncio.sleep(60)
         if all([player.websocket is None for player in self.players.values()]):
             self.__init__()
             return
@@ -220,6 +183,14 @@ class BlurryGameData():
             "name": player_name,
         })
 
+        if self.game_state == "start":
+            if all(self.players[player_name].guess is not None for player_name in self.get_live_players()):
+                await self.handle_evaluate()
+
+        elif self.game_state == "evaluate":
+            if all(self.players[player_name].acknowledged for player_name in self.get_live_players()):
+                await self.handle_next()
+
         if len(self.players) == 0:
             self.__init__()
 
@@ -230,6 +201,7 @@ class BlurryGameData():
         # reset all player points
         for player_name in self.players:
             self.players[player_name].points = 0
+            self.players[player_name].is_alive = True
 
         # wait a while before handle next
         await asyncio.sleep(1)
@@ -249,6 +221,9 @@ class BlurryGameData():
             return
 
         self.game_state = "start"
+
+        for player_name in self.players:
+            self.players[player_name].is_alive = True
 
         for player_name in self.get_live_players():
             self.players[player_name].guess = None

@@ -286,7 +286,7 @@ class CityGameData():
             
             # points should be max 100
             gained[player_name] = {
-                "points": int(100 - ((player.distance / max_distance) * 100)),
+                "points": int(100 - ((player.distance / max_distance) * 100)) if player.city != self.closest_city else 100,
                 "city": player.city,
             }
             player.points += gained[player_name]["points"]

@@ -12,6 +12,7 @@ from bson.objectid import ObjectId
 from datetime import datetime, timedelta
 import heapq
 import numpy as np
+import asyncio
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
@@ -27,6 +28,7 @@ from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
 from quip_ai import QuipData, QuipGameData
+from speech_racer import SpeechRacer
 
 from openai import OpenAI
 
@@ -780,3 +782,26 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     game_data: QuipGameData = quip_data.games[game_id]
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
+
+game_instances: Dict[str, SpeechRacer] = {}
+
+@app.websocket("/speechracer/ws/{name}")
+async def websocket_endpoint(websocket: WebSocket, name: str):
+    await websocket.accept()
+
+    time_entered = datetime.now()
+    time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
+    print(time_entered_key)
+    is_new_game = time_entered_key not in game_instances
+
+    if is_new_game:
+        game_instances[time_entered_key] = SpeechRacer(time_entered, get_settings())
+    
+    game_instance = game_instances[time_entered_key]
+    await game_instance.handle_connection(websocket, name)
+    await game_instance.handle_client(websocket, name)
+
+    if is_new_game:
+      # delete game instance after 6 minutes
+      await asyncio.sleep(360)
+      del game_instances[time_entered_key]

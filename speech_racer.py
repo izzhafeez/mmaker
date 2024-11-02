@@ -33,14 +33,13 @@ class SpeechRacer:
                     player_name = data.get("name")
                     self.player_progresses[player_name] = data.get("progress")
                     await self.notify_all_players("progress", {})
-        except WebSocketDisconnect as e:
+        except WebSocketDisconnect as _:
             print(f"Player disconnected")
             self.players.pop(name)
             self.player_progresses.pop(name)
-            if name in self.players:
-                await self.notify_all_players("disconnect", {
-                  "name": e.detail
-                })
+            await self.notify_all_players("disconnect", {
+                "name": name
+            })
         
     async def notify_all_players(self, method: str, data: Dict[str, Any]):
         for player in self.players.values():

@@ -785,7 +785,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
 
 game_instances: Dict[str, SpeechRacer] = {}
 
-@app.websocket("/speechracer/ws/{name}")
+@app.websocket("/api/speechracer/{name}")
 async def websocket_endpoint(websocket: WebSocket, name: str):
     await websocket.accept()
 

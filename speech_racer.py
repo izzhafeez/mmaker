@@ -6,7 +6,7 @@ from pymongo import MongoClient
 from fastapi.websockets import WebSocketDisconnect
 
 class SpeechRacer:
-    def __init__(self, time_entered: datetime, settings):
+    def __init__(self, time_entered: datetime, difficulty: str, settings):
         self.players: Dict[str, WebSocket] = {}
         self.player_progresses: Dict[str, int] = {}
         self.time_entered = time_entered

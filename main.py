@@ -798,7 +798,7 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     if is_new_game:
         game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
     
-    game_instance = game_instances[time_entered_key]
+    game_instance = game_instances[key]
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)
 

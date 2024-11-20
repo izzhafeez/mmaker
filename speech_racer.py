@@ -9,12 +9,26 @@ class SpeechRacer:
     def __init__(self, time_entered: datetime, difficulty: str, settings):
         self.players: Dict[str, WebSocket] = {}
         self.player_progresses: Dict[str, int] = {}
+        self.player_accuracy: Dict[str, float] = {}
+        self.player_wpm: Dict[str, float] = {}
         self.time_entered = time_entered
         asyncio.create_task(self.start_game())
 
         connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
         client = MongoClient(connection)
-        self.text = client.speechracer.texts.aggregate([{"$sample": {"size": 1}}]).next()
+
+        if difficulty == "easy":
+            # id [1, 100] means easy
+            self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$lte": 100}}}, {"$sample": {"size": 1}}]).next()
+        elif difficulty == "medium":
+            # [101, 300] means medium
+            self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$gt": 100, "$lte": 300}}}, {"$sample": {"size": 1}}]).next()
+        elif difficulty == "hard":
+            # [301, 600] means hard
+            self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$gt": 300, "$lte": 600}}}, {"$sample": {"size": 1}}]).next()
+        else:
+            # [601, 9999] means hard
+            self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$gt": 600}}}, {"$sample": {"size": 1}}]).next()
 
     async def handle_connection(self, websocket: WebSocket, name: str):
         self.players[name] = websocket
@@ -33,6 +47,19 @@ class SpeechRacer:
                     player_name = data.get("name")
                     self.player_progresses[player_name] = data.get("progress")
                     await self.notify_all_players("progress", {})
+                elif method == "complete":
+                    # contains name, accuracy, wpm
+                    player_name = data.get("name")
+                    self.player_accuracy[player_name] = data.get("accuracy")
+                    self.player_wpm[player_name] = data.get("wpm")
+                    
+                    # only send data of completed players
+                    data_of_completed_players = {}
+                    for player in self.player_accuracy:
+                        data_of_completed_players[player] = [self.player_accuracy[player], self.player_wpm[player]]
+                    await self.notify_all_players("complete", {
+                        'completed_data': data_of_completed_players
+                    })
         except WebSocketDisconnect as _:
             print(f"Player disconnected")
             self.players.pop(name)

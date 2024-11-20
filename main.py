@@ -78,6 +78,7 @@ class QuizRequest(BaseModel):
 class Settings(BaseSettings):
     mongo_password: str
     openai_api_key: str
+    cities_mongo_password: str
     model_config = SettingsConfigDict(env_file=".env")
 
 @lru_cache
@@ -805,4 +806,53 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     if is_new_game:
       # delete game instance after 6 minutes
       await asyncio.sleep(360)
-      del game_instances[key]
+      if key in game_instances:
+        del game_instances[key]
+
+class CityRequest(BaseModel):
+    name: str
+    code: str
+
+# cities app
+# gets cities from mongodb
+@app.get("/api/apps/cities")
+def get_by_name(city_request: CityRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://half2720:{settings.cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    name = f'^{city_request.name}$' or ''
+    code = f'^{city_request.code}$' or ''
+    return [c for c in client.place_names.cities.find({'name': {'$regex': name, '$options': 'i'}, 'code': {'$regex': code, '$options': 'i'}})]
+
+class CountryBoundRequest(BaseModel):
+    code: str
+
+@app.get("/api/apps/cities/get-country-bound")
+def get_country_bound(country_bound_request: CountryBoundRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://half2720:{settings.cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    code = country_bound_request.code or ''
+    # find min and max lat and lng of all cities in the country without retrieving all cities
+    pipeline = [
+        {"$match": {"code": code}},  # Match the specific country by its code
+        {
+            "$group": {
+                "_id": None,
+                "minLat": {"$min": "$lat"},
+                "maxLat": {"$max": "$lat"},
+                "minLng": {"$min": "$lng"},
+                "maxLng": {"$max": "$lng"}
+            }
+        }
+    ]
+    result = list(client.place_names.cities.aggregate(pipeline))
+    
+    if result:
+        bounds = result[0]
+        return {
+            "minLat": bounds["minLat"],
+            "maxLat": bounds["maxLat"],
+            "minLng": bounds["minLng"],
+            "maxLng": bounds["maxLng"]
+        }
+    else:
+        return {"error": "No data found for the given country code."}

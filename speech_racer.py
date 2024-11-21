@@ -13,8 +13,8 @@ class SpeechRacer:
         self.player_wpm: Dict[str, float] = {}
         self.difficulty = difficulty
         self.settings = settings
-        asyncio.create_task(self.start_game())
-
+        self.is_inactive = True
+        
     async def generate_text(self):
         connection = f"mongodb+srv://admin:{self.settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
         client = MongoClient(connection)
@@ -85,3 +85,4 @@ class SpeechRacer:
         await self.notify_all_players("start", {"text": self.text["text"], "source": self.text["source"]})
         await asyncio.sleep(3600)
         await self.notify_all_players("end", {})
+        self.is_inactive = True

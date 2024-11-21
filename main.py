@@ -801,7 +801,12 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     key = f"{difficulty}-{minute}"
 
     game_instance = game_instances[key]
-    await game_instance.generate_text()
+
+    if game_instance.is_inactive:
+        await game_instance.generate_text()
+        asyncio.create_task(game_instance.start_game())
+
+    print(game_instance, key)
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)

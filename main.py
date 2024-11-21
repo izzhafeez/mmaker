@@ -794,7 +794,7 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     time_entered = datetime.now()
     time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
     key = f"{time_entered_key}-{difficulty}"
-    is_new_game = time_entered_key not in game_instances
+    is_new_game = key not in game_instances
 
     if is_new_game:
         game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())

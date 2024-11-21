@@ -806,11 +806,11 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
 
     async with sr_lock:
         print(key, game_instances)
-        if key not in game_instances:
-            game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
+        game_instance = game_instances.get(key)
+        if not game_instance:
+            game_instance = SpeechRacer(time_entered, difficulty, get_settings())
+            game_instances[key] = game_instance
             asyncio.create_task(cleanup_game(key))
-
-        game_instance = game_instances[key]
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)

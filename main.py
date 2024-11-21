@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 import heapq
 import numpy as np
 import asyncio
-from asyncio import Lock 
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
 from data_hedger import HedgerData, HedgerGameData
@@ -786,8 +785,15 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     await game_data.handle_client(websocket)
 
 game_instances: Dict[str, SpeechRacer] = {}
-game_exists: Dict[str, SpeechRacer] = {}
-sr_lock = Lock()
+sr_lock = asyncio.Lock()
+
+async def cleanup_game(key: str):
+    # Delay and remove the game instance safely
+    await asyncio.sleep(360)  # 6 minutes delay
+    async with sr_lock:
+        # Remove only if it wasn't already deleted
+        if key in game_instances:
+            del game_instances[key]
 
 # difficulty goes easy medium hard
 @app.websocket("/api/speechracer/{difficulty}/{name}")
@@ -799,24 +805,15 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     key = f"{time_entered_key}-{difficulty}"
 
     async with sr_lock:
-        is_new_game = key not in game_exists
-
-        print(key, is_new_game, game_exists)
-
-        if is_new_game:
-            game_exists[key] = True
+        print(key, game_instances)
+        if key not in game_instances:
             game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
+            asyncio.create_task(cleanup_game(key))
 
         game_instance = game_instances[key]
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)
-
-    if is_new_game:
-      # delete game instance after 6 minutes
-      await asyncio.sleep(360)
-      if key in game_instances:
-        del game_instances[key]
 
 class CityRequest(BaseModel):
     name: str

@@ -804,13 +804,21 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
     key = f"{time_entered_key}-{difficulty}"
 
+    print(f"Trying to acquire lock for key: {key}")
     async with sr_lock:
-        print(key, game_instances)
-        game_instance = game_instances.get(key)
-        if not game_instance:
-            game_instance = SpeechRacer(time_entered, difficulty, get_settings())
-            game_instances[key] = game_instance
+        print(f"Lock acquired for key: {key}")
+        
+        if key not in game_instances:
+            print(f"Creating new game instance for key: {key}")
+            game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
             asyncio.create_task(cleanup_game(key))
+        else:
+            print(f"Reusing existing game instance for key: {key}")
+
+        game_instance = game_instances[key]
+        print(f"Game instance ID for key {key}: {id(game_instance)}")
+
+    print(f"Lock released for key: {key}")
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)

@@ -6,24 +6,26 @@ from pymongo import MongoClient
 from fastapi.websockets import WebSocketDisconnect
 
 class SpeechRacer:
-    def __init__(self, time_entered: datetime, difficulty: str, settings):
+    def __init__(self, difficulty: str, settings):
         self.players: Dict[str, WebSocket] = {}
         self.player_progresses: Dict[str, int] = {}
         self.player_accuracy: Dict[str, float] = {}
         self.player_wpm: Dict[str, float] = {}
-        self.time_entered = time_entered
+        self.difficulty = difficulty
+        self.settings = settings
         asyncio.create_task(self.start_game())
 
-        connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    async def generate_text(self):
+        connection = f"mongodb+srv://admin:{self.settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
         client = MongoClient(connection)
 
-        if difficulty == "easy":
+        if self.difficulty == "easy":
             # id [1, 100] means easy
             self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$lte": 100}}}, {"$sample": {"size": 1}}]).next()
-        elif difficulty == "medium":
+        elif self.difficulty == "medium":
             # [101, 300] means medium
             self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$gt": 100, "$lte": 300}}}, {"$sample": {"size": 1}}]).next()
-        elif difficulty == "hard":
+        elif self.difficulty == "difficult":
             # [301, 600] means hard
             self.text = client.speechracer.texts.aggregate([{"$match": {"id": {"$gt": 300, "$lte": 600}}}, {"$sample": {"size": 1}}]).next()
         else:

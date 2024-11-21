@@ -785,15 +785,10 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     await game_data.handle_client(websocket)
 
 game_instances: Dict[str, SpeechRacer] = {}
-sr_lock = asyncio.Lock()
-
-async def cleanup_game(key: str):
-    # Delay and remove the game instance safely
-    await asyncio.sleep(360)  # 6 minutes delay
-    async with sr_lock:
-        # Remove only if it wasn't already deleted
-        if key in game_instances:
-            del game_instances[key]
+for diff in ['easy', 'medium', 'difficult', 'very_difficult']:
+    for i in range(6):
+        key = f"{diff}-{i}"
+        game_instances[key] = SpeechRacer(diff, get_settings())
 
 # difficulty goes easy medium hard
 @app.websocket("/api/speechracer/{difficulty}/{name}")
@@ -801,24 +796,12 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     await websocket.accept()
 
     time_entered = datetime.now()
-    time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
-    key = f"{time_entered_key}-{difficulty}"
+    minute = time_entered.minute
+    minute = minute % 6
+    key = f"{difficulty}-{minute}"
 
-    print(f"Trying to acquire lock for key: {key}")
-    async with sr_lock:
-        print(f"Lock acquired for key: {key}")
-        
-        if key not in game_instances:
-            print(f"Creating new game instance for key: {key}")
-            game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
-            asyncio.create_task(cleanup_game(key))
-        else:
-            print(f"Reusing existing game instance for key: {key}")
-
-        game_instance = game_instances[key]
-        print(f"Game instance ID for key {key}: {id(game_instance)}")
-
-    print(f"Lock released for key: {key}")
+    game_instance = game_instances[key]
+    game_instance.generate_text()
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)

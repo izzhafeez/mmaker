@@ -794,6 +794,7 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     time_entered = datetime.now()
     time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
     key = f"{time_entered_key}-{difficulty}"
+    print(key, game_instances)
     is_new_game = key not in game_instances
 
     if is_new_game:

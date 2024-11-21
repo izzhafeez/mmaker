@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 from pymongo import MongoClient
+import redis
 from fastapi import FastAPI, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -783,6 +784,10 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     game_data: QuipGameData = quip_data.games[game_id]
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
+
+# Redis for Pub/Sub
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
+pubsub = redis_client.pubsub()
 
 game_instances: Dict[str, SpeechRacer] = {}
 for diff in ['easy', 'medium', 'difficult', 'very_difficult']:

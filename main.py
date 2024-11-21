@@ -786,7 +786,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     await game_data.handle_client(websocket)
 
 game_instances: Dict[str, SpeechRacer] = {}
-sr_lock = Lock()
+game_exists: Dict[str, SpeechRacer] = {}
 
 # difficulty goes easy medium hard
 @app.websocket("/api/speechracer/{difficulty}/{name}")
@@ -796,16 +796,15 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     time_entered = datetime.now()
     time_entered_key = time_entered.strftime("%Y-%m-%d %H:%M")
     key = f"{time_entered_key}-{difficulty}"
-    print(key, game_instances)
 
-    async with sr_lock:
-        is_new_game = key not in game_instances
-        if is_new_game:
-            game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
+    is_new_game = key not in game_exists
 
-        game_instance = game_instances[key]
-    
+    if is_new_game:
+        game_exists[key] = True
+        game_instances[key] = SpeechRacer(time_entered, difficulty, get_settings())
+
     game_instance = game_instances[key]
+
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)
 

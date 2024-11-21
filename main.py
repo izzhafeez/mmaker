@@ -801,7 +801,7 @@ async def websocket_endpoint(websocket: WebSocket, difficulty: str, name: str):
     key = f"{difficulty}-{minute}"
 
     game_instance = game_instances[key]
-    game_instance.generate_text()
+    await game_instance.generate_text()
 
     await game_instance.handle_connection(websocket, name)
     await game_instance.handle_client(websocket, name)

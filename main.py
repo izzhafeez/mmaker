@@ -1,6 +1,5 @@
 from typing import Any, Dict, List
 from pymongo import MongoClient
-import redis
 from fastapi import FastAPI, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -14,17 +13,13 @@ from datetime import datetime, timedelta
 import heapq
 import numpy as np
 import asyncio
+from redis_client import RedisClient
 from stat_attack import StatAttackData, GameData
 from math_attack import MathAttackData, MathGameData
-from data_hedger import HedgerData, HedgerGameData
-from blurry_battle import BlurryData, BlurryGameData
-from color_guessr import ColorData, ColorGameData
-from stat_guessr import StatData, StatGameData
-from frequency_guessr import FrequencyData, FrequencyGameData
-from midpoint_master import MidpointData, MidpointGameData
-from location_guessr import LocationData, LocationGameData
-from city_hedger import CityData, CityGameData
-from number_nightmare import NumberData, NumberGameData
+from guess_game_instance import GuessGameInstance
+from guess_game_maker import GuessGameMaker
+from hedge_game_instance import HedgeGameInstance
+from hedge_game_maker import HedgeGameMaker
 from convo_starter import generate_cs_questions, ConvoStarterData
 from burning_bridges import generate_bb_questions, BurningBridgesData
 from truth_or_dare import generate_tod_questions, TruthDareData
@@ -80,6 +75,8 @@ class Settings(BaseSettings):
     mongo_password: str
     openai_api_key: str
     cities_mongo_password: str
+    redis_host: str
+    redis_password: str
     model_config = SettingsConfigDict(env_file=".env")
 
 @lru_cache
@@ -434,21 +431,6 @@ async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str)
     game_data: GameData = games_data.get_game_data(game_type, game_id)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
-
-games_data = BlurryData()
-
-@app.websocket("/api/games/blurry-battle/{game_type}/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str):
-    await websocket.accept()
-
-    if not games_data.game_data_exists(game_type, game_id):
-        await websocket.send_json({
-            "method": "connect_error"
-        })
-
-    game_data: BlurryGameData = games_data.get_game_data(game_type, game_id)
-    await game_data.handle_connect(websocket)
-    await game_data.handle_client(websocket)
     
 def convert_result_to_record(result):
     return (
@@ -474,131 +456,95 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-hedger_data = HedgerData()
+redis_client = RedisClient(get_settings())
+mongo_client = MongoClient(f"mongodb+srv://half2720:{get_settings().cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem")
 
-@app.websocket("/api/games/data-hedger/{game_type}/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_type: str, game_id: str):
-    print(f"connecting to {game_id}")
-    await websocket.accept()
-
-    if not hedger_data.game_data_exists(game_type, game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: HedgerGameData = hedger_data.get_game_data(game_type, game_id)
-    await game_data.handle_connect(websocket)
-    await game_data.handle_client(websocket)
-
-midpoint_data = MidpointData()
-
-@app.websocket("/api/games/midpoint-master/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
-    print(f"connecting to {game_id}")
-    await websocket.accept()
-
-    if not midpoint_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: MidpointGameData = midpoint_data.get_game_data(game_id)
-    await game_data.handle_connect(websocket)
-    await game_data.handle_client(websocket)
-
-color_data = ColorData()
-
-@app.websocket("/api/games/color-guessr/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
-    print(f"connecting to {game_id}")
-    await websocket.accept()
-
-    if not color_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: ColorGameData = color_data.get_game_data(game_id)
-    await game_data.handle_connect(websocket)
-    await game_data.handle_client(websocket)
-
-stat_guessr_data = StatData()
-
-@app.websocket("/api/games/stat-guessr/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
-    print(f"connecting to {game_id}")
-    await websocket.accept()
-
-    if not stat_guessr_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: StatGameData = stat_guessr_data.get_game_data(game_id)
-    await game_data.handle_connect(websocket)
-    await game_data.handle_client(websocket)
-
-frequency_data = FrequencyData()
+g_game_maker = GuessGameMaker(redis_client)
 
 @app.websocket("/api/games/frequency-guessr/{game_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
     print(f"connecting to {game_id}")
     await websocket.accept()
 
-    if not frequency_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: FrequencyGameData = frequency_data.get_game_data(game_id)
+    game_data: GuessGameInstance = await g_game_maker.get_game_data('frequency-guessr', game_id, redis_client)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-number_data = NumberData()
+@app.websocket("/api/games/color-guessr/{game_id}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str):
+    print(f"connecting to color-guessr {game_id}")
+    await websocket.accept()
 
-@app.websocket("/api/games/number-nightmare/{game_id}")
+    print("getting game data")
+    game_data: GuessGameInstance = await g_game_maker.get_game_data('color-guessr', game_id, redis_client)
+    print("connecting")
+    await game_data.handle_connect(websocket)
+    print("connected")
+    await game_data.handle_client(websocket)
+    print("handled")
+
+@app.websocket("/api/games/blurry-battle/{game_id}/{deck_size}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, deck_size: int):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    game_data: GuessGameInstance = await g_game_maker.get_game_data('blurry-battle', game_id, redis_client, deck_size=deck_size)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+@app.websocket("/api/games/stat-guessr/{game_id}/{deck_size}/{field_size}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, deck_size: int, field_size: int):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    game_data: GuessGameInstance = await g_game_maker.get_game_data('stat-guessr', game_id, redis_client, deck_size=deck_size, field_size=field_size)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+@app.websocket("/api/games/location-guessr/{game_id}/{deck_size}/{max_distance}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, deck_size: int, max_distance: float):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    game_data: GuessGameInstance = await g_game_maker.get_game_data('location-guessr', game_id, redis_client, deck_size=deck_size, max_distance=max_distance)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+h_game_maker = HedgeGameMaker(redis_client)
+
+@app.websocket("/api/games/data-hedger/{game_id}/{deck_size}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, deck_size: int):
+    print(f"connecting to {game_id}")
+    await websocket.accept()
+
+    game_data: HedgeGameInstance = await h_game_maker.get_game_data('data-hedger', game_id, redis_client, deck_size=deck_size)
+    await game_data.handle_connect(websocket)
+    await game_data.handle_client(websocket)
+
+@app.websocket("/api/games/midpoint-master/{game_id}")
 async def websocket_endpoint(websocket: WebSocket, game_id: str):
     print(f"connecting to {game_id}")
     await websocket.accept()
 
-    if not number_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: NumberGameData = number_data.get_game_data(game_id)
+    game_data: HedgeGameInstance = await h_game_maker.get_game_data('midpoint-master', game_id, redis_client)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-location_data = LocationData()
-
-@app.websocket("/api/games/location-guessr/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
+@app.websocket("/api/games/number-nightmare/{game_id}/{deck_size}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, deck_size: int):
     print(f"connecting to {game_id}")
     await websocket.accept()
 
-    if not location_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: LocationGameData = location_data.get_game_data(game_id)
+    game_data: HedgeGameInstance = await h_game_maker.get_game_data('number-nightmare', game_id, redis_client, deck_size=deck_size)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-city_data = CityData()
-
-@app.websocket("/api/games/city-hedger/{game_id}")
-async def websocket_endpoint(websocket: WebSocket, game_id: str):
+@app.websocket("/api/games/city-hedger/{game_id}/{country}/{min_lat}/{max_lat}/{min_lng}/{max_lng}")
+async def websocket_endpoint(websocket: WebSocket, game_id: str, country: str, min_lat: float, max_lat: float, min_lng: float, max_lng: float):
     print(f"connecting to {game_id}")
     await websocket.accept()
 
-    if not city_data.game_data_exists(game_id):
-        await websocket.send_json({
-            "method": "CONNECT_ERROR"
-        })
-
-    game_data: CityGameData = city_data.get_game_data(game_id)
+    game_data: HedgeGameInstance = await h_game_maker.get_game_data('city-hedger', game_id, redis_client, mongo_client=mongo_client, country=country, min_lat=min_lat, max_lat=max_lat, min_lng=min_lng, max_lng=max_lng)
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
@@ -784,10 +730,6 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str, settings: Annot
     game_data: QuipGameData = quip_data.games[game_id]
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
-
-# Redis for Pub/Sub
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
-pubsub = redis_client.pubsub()
 
 game_instances: Dict[str, SpeechRacer] = {}
 for diff in ['easy', 'medium', 'difficult', 'very_difficult']:

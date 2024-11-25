@@ -82,6 +82,8 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings():
     return Settings()
+
+settings = Settings()
  
 app = FastAPI()
 app.add_middleware(
@@ -456,8 +458,8 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-redis_client = RedisClient(get_settings())
-mongo_client = MongoClient(f"mongodb+srv://half2720:{get_settings().cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem")
+redis_client = RedisClient(settings.redis_host, settings.redis_password)
+mongo_client = MongoClient(f"mongodb+srv://half2720:{settings.cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem")
 
 g_game_maker = GuessGameMaker(redis_client)
 

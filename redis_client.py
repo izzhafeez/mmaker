@@ -6,11 +6,11 @@ import json
 port = 17149
 
 class RedisClient:
-		def __init__(self, settings):
+		def __init__(self, redis_host, redis_password):
 				self.client = redis.Redis(
-						host=settings.redis_host,
+						host=redis_host,
 						port=port,
-						password=settings.redis_password,
+						password=redis_password,
 				)
 		
 		async def publish(self, channel: str, message: Dict[str, Any]):

@@ -807,3 +807,63 @@ def get_country_bound(country_bound_request: CountryBoundRequest, settings: Anno
         }
     else:
         return {"error": "No data found for the given country code."}
+
+class CommentRequest(BaseModel):
+    key: str
+    poster: str
+    datetime: str
+    content: str
+    # reply of is optional
+    replyOf: int = None
+    
+@app.post("/api/comments")
+def post_comment(request: CommentRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    result = client.meetupmaker["comments"].insert_one({
+        "key": request.key,
+        "poster": request.poster,
+        "datetime": request.datetime,
+        "content": request.content,
+        "replyOf": request.replyOf,
+        "likes": 0
+    })
+    return { "id": str(result.inserted_id) }
+
+@app.get("/api/comments/{key}")
+def get_comments(key: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    comments = [
+        {
+            "id": str(comment["_id"]),
+            "poster": comment.get("poster", ""),
+            "datetime": comment.get("datetime", ""),
+            "content": comment.get("content", ""),
+            "replyOf": comment.get("replyOf", None),
+            "likes": comment.get("likes", 0)
+        }
+        for comment in client.meetupmaker.comments.find({ "key": key })
+    ]
+    return comments
+
+@app.post("/api/comments/{comment_id}/like")
+def like_comment(comment_id: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    result = client.meetupmaker["comments"].update_one({ "_id": ObjectId(comment_id) },
+                                              { "$inc": { "likes": 1 } })
+    
+@app.post("/api/comments/{comment_id}/unlike")
+def unlike_comment(comment_id: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    client.meetupmaker["comments"].update_one({ "_id": ObjectId(comment_id) },
+                                              { "$inc": { "likes": -1 } })
+
+# delete comment
+@app.delete("/api/comments/{comment_id}")
+def delete_comment(comment_id: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    client.meetupmaker["comments"].delete_one({ "_id": ObjectId(comment_id) })

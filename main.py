@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 from pymongo import MongoClient
+import pymongo
 from fastapi import FastAPI, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -813,17 +814,28 @@ class CommentRequest(BaseModel):
     poster: str
     datetime: str
     content: str
+    # data is a json object and is optional
+    data: Dict[str, Any] = {}
     # reply of is optional
     replyOf: int = None
+    is_edit: int = 0
     
 @app.post("/api/comments")
 def post_comment(request: CommentRequest, settings: Annotated[Settings, Depends(get_settings)]):
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
+    if request.is_edit:
+        comment = client.meetupmaker["comments"].find_one({ "key": request.key, "poster": request.poster })
+        if comment:
+            client.meetupmaker["comments"].update_one({ "key": request.key, "poster": request.poster },
+                                                      { "$set": { "content": request.content, "data": request.data } })
+            return { "id": str(comment["_id"]) }
+    
     result = client.meetupmaker["comments"].insert_one({
         "key": request.key,
         "poster": request.poster,
         "datetime": request.datetime,
+        "data": request.data, 
         "content": request.content,
         "replyOf": request.replyOf,
         "likes": 0
@@ -839,6 +851,7 @@ def get_comments(key: str, settings: Annotated[Settings, Depends(get_settings)])
             "id": str(comment["_id"]),
             "poster": comment.get("poster", ""),
             "datetime": comment.get("datetime", ""),
+            "data": comment.get("data", {}),
             "content": comment.get("content", ""),
             "replyOf": comment.get("replyOf", None),
             "likes": comment.get("likes", 0)
@@ -867,3 +880,91 @@ def delete_comment(comment_id: str, settings: Annotated[Settings, Depends(get_se
     connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
     client = MongoClient(connection)
     client.meetupmaker["comments"].delete_one({ "_id": ObjectId(comment_id) })
+
+@app.get("/api/comments/{key}/{name}")
+def get_comments_by_name(key: str, name: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    comment = client.meetupmaker["comments"].find_one({ "key": key, "poster": name }, { '_id': False })
+    return comment
+
+class RateRequest(BaseModel):
+    name: str
+    key: str
+    data: Dict[str, Any]
+    fields: List[str]
+
+# each category has multiple fields where users can rate items on
+# must keep track of current rating, as well as number of ratings
+@app.post("/api/rate")
+def rate(request: RateRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    key = request.key
+    category = request.key.split("+")[0]
+    item_name = request.key.split("+")[1]
+    name = request.name
+    fields = request.fields
+    comment = client.meetupmaker["comments"].find_one({ "key": key, "poster": name })
+    item = client.meetupmaker["ratings"].find_one({ "category": category, "item": item_name })
+
+    if item is None:
+        to_add = { "category": category, "item": item_name, "count": 0 }
+        for field in fields:
+            to_add[field] = 0
+        client.meetupmaker["ratings"].insert_one(to_add)
+        item = client.meetupmaker["ratings"].find_one({ "category": category, "item": item_name })
+    
+    if comment is None:
+        item['count'] += 1
+        for field in fields:
+            item[field] = (item[field] * (item['count'] - 1) + request.data[field]) / item['count']
+    else:
+        for field in fields:
+            item[field] = (item[field] * item['count'] - comment['data'][field] + request.data[field]) / item['count']
+
+    print(item)
+
+    client.meetupmaker["ratings"].update_one({ "category": category, "item": item_name }, { "$set": item })
+
+# retrieve based on category and item
+@app.get("/api/rate/{category}/{item}")
+def retrieve_rating(category: str, item: str, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    rating = client.meetupmaker["ratings"].find_one({ "category": category, "item": item }, { '_id': False })
+    return rating
+
+RATING_PER_PAGE = 10
+class RetrieveManyRatingRequest(BaseModel):
+    category: str
+    field: str
+    is_asc: int
+    search_term: str
+    page: int
+# retrieve many based on category, and sorted by some field
+# search_term is regex
+@app.post("/api/rate/many")
+def retrieve_many_rating(request: RetrieveManyRatingRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    category = request.category
+    field = request.field
+    is_asc = request.is_asc
+    page = request.page
+    sort_order = pymongo.ASCENDING if is_asc else pymongo.DESCENDING
+    search_term = request.search_term
+    ratings = list(client.meetupmaker["ratings"].find({ "category": category, "item": { "$regex": search_term, "$options": "i" } }, { '_id': False }).sort(field, sort_order).skip((page-1) * RATING_PER_PAGE).limit(RATING_PER_PAGE))
+    return ratings
+
+class RetrieveRatingRequest(BaseModel):
+    category: str
+
+# retrieve all in category
+@app.get("/api/rate/all")
+def retrieve_all_rating(request: RetrieveRatingRequest, settings: Annotated[Settings, Depends(get_settings)]):
+    connection = f"mongodb+srv://admin:{settings.mongo_password}@cluster0.1jxisbd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"
+    client = MongoClient(connection)
+    category = request.category
+    ratings = list(client.meetupmaker["ratings"].find({ "category": category }))
+    return ratings

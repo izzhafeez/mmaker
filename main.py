@@ -367,15 +367,15 @@ def quiz_score(quiz_type: str, quiz_name: str, request: QuizRequest, settings: A
     if player['name'] == name:
       if player['score'] < score:
         player['score'] = score
-        players.sort(key=lambda x: (x['score']))
+        players.sort(key=lambda x: (x['score']), reverse=True)
       player_found = True
 
   if len(players) < 10 and not player_found:
     players.append(player_data)
-    players.sort(key=lambda x: (x['score']))
+    players.sort(key=lambda x: (x['score']), reverse=True)
   else:
     players.append(player_data)
-    players.sort(key=lambda x: (x['score']))
+    players.sort(key=lambda x: (x['score']), reverse=True)
     players.pop()
   
   client.quiz[quiz_type].update_one({

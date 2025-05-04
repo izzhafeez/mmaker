@@ -2,14 +2,11 @@ from typing import Dict, Any
 import redis.asyncio as redis
 import json
 
-# read from environment variables
-port = 10592
-
 class RedisClient:
-		def __init__(self, redis_host, redis_password):
+		def __init__(self, redis_host, redis_password, redis_port):
 				self.client = redis.Redis(
 						host=redis_host,
-						port=port,
+						port=redis_port,
 						password=redis_password,
 				)
 		

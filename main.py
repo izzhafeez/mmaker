@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     cities_mongo_password: str
     redis_host: str
     redis_password: str
+    redis_port: int
     model_config = SettingsConfigDict(env_file=".env")
 
 @lru_cache
@@ -459,7 +460,7 @@ async def websocket_endpoint(websocket: WebSocket, game_id: str):
     await game_data.handle_connect(websocket)
     await game_data.handle_client(websocket)
 
-redis_client = RedisClient(settings.redis_host, settings.redis_password)
+redis_client = RedisClient(settings.redis_host, settings.redis_password, settings.redis_port)
 mongo_client = MongoClient(f"mongodb+srv://half2720:{settings.cities_mongo_password}@cities.0jtsf.mongodb.net/?retryWrites=true&w=majority&appName=Cities&tlsCAFile=isrgrootx1.pem")
 
 g_game_maker = GuessGameMaker(redis_client)

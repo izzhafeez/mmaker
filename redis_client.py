@@ -3,7 +3,7 @@ import redis.asyncio as redis
 import json
 
 # read from environment variables
-port = 17149
+port = 10592
 
 class RedisClient:
 		def __init__(self, redis_host, redis_password):

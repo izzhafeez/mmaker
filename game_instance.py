@@ -123,7 +123,9 @@ class GameInstance(ABC):
         # if all players disconnected, reset game after a while
         await asyncio.sleep(60)
         if len(self.websocket_connections) == 0:
+            await self.redis_client.unsubscribe(self.instance_id)
             self.__init__(self.instance_id, self.redis_client)
+            asyncio.create_task(self.start_redis())
             return
 
     @abstractmethod

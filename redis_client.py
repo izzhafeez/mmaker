@@ -8,7 +8,9 @@ class RedisClient:
 						host=redis_host,
 						port=redis_port,
 						password=redis_password,
+						max_connections=10,
 				)
+				self.pubsubs = {}
 		
 		async def publish(self, channel: str, message: Dict[str, Any]):
 				print('pub', channel, message)
@@ -16,6 +18,7 @@ class RedisClient:
 
 		async def subscribe(self, channel: str, callback):
 				pubsub = self.client.pubsub()
+				self.pubsubs[channel] = pubsub
 				await pubsub.subscribe(channel)
 				print('subscribed to', channel)
 				async for message in pubsub.listen():
@@ -24,4 +27,7 @@ class RedisClient:
 								await callback(json.loads(message['data'].decode('utf-8')))
 
 		async def unsubscribe(self, channel: str):
-				self.client.unsubscribe(channel)
+				if channel in self.pubsubs:
+						pubsub = self.pubsubs.pop(channel)
+						await pubsub.unsubscribe(channel)
+						await pubsub.aclose()
